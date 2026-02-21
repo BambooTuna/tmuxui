@@ -1,0 +1,12 @@
+root = "."
+tmp_dir = "tmp"
+
+[build]
+  cmd = "go build -o ./tmp/tmuxui ."
+  bin = "./tmp/tmuxui --dev --token bambootuna --host 0.0.0.0"
+  include_ext = ["go"]
+  exclude_dir = ["tmp", "web", "docs"]
+  delay = 500
+
+[misc]
+  clean_on_exit = true

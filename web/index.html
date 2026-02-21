@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>tmuxui</title>
+  <link rel="stylesheet" href="style.css?v=5">
+</head>
+<body>
+
+  <!-- ===== 画面1: セッション一覧 ===== -->
+  <div id="view-sessions" class="view active">
+    <header class="header">
+      <h1 class="app-title">tmuxui</h1>
+      <button id="btn-new-session" class="btn-icon" aria-label="新規セッション">＋</button>
+      <span id="ws-dot" class="ws-dot"></span>
+    </header>
+    <main id="session-list" class="session-list"></main>
+  </div>
+
+  <!-- ===== 画面2: セッション詳細 ===== -->
+  <div id="view-detail" class="view">
+    <header class="header">
+      <button id="btn-back" class="btn-back" aria-label="戻る">&#8592;</button>
+      <span id="session-title" class="session-title"></span>
+      <button id="btn-auto-approve" class="btn-toggle" aria-label="自動許可">AUTO</button>
+      <button id="btn-refresh" class="btn-icon" aria-label="更新">&#8635;</button>
+      <button id="btn-menu" class="btn-icon" aria-label="メニュー">&#9776;</button>
+    </header>
+    <!-- ===== 権限バナー（通知のみ） ===== -->
+    <div id="permission-banner" hidden class="permission-banner">
+      <span id="permission-prompt-text" class="banner-text">権限許可が必要です</span>
+      <button id="btn-perm-dismiss" class="btn-perm-dismiss" aria-label="閉じる">&times;</button>
+    </div>
+
+    <nav id="pane-tabs" class="pane-tabs"></nav>
+
+    <!-- ===== ペインドロワー ===== -->
+    <div id="drawer-overlay" hidden class="drawer-overlay"></div>
+    <nav id="drawer" class="drawer">
+      <div class="drawer-header">Panes</div>
+      <div id="drawer-pane-list" class="drawer-list"></div>
+    </nav>
+    <div id="pane-content" class="pane-content"></div>
+    <div class="input-area">
+      <form id="cmd-form" class="input-form" action="javascript:void(0)">
+        <textarea id="cmd-input" class="cmd-input" rows="2" placeholder="コマンドを入力..."
+               autocomplete="off" autocorrect="off"
+               autocapitalize="off" spellcheck="false" enterkeyhint="enter"
+               aria-describedby="cmd-input-hint"></textarea>
+        <span id="cmd-input-hint" class="sr-only">送信ボタンで送信</span>
+        <div class="action-bar">
+          <button type="button" id="btn-up" class="btn-cursor" aria-label="上キー">&#8593;</button>
+          <button type="button" id="btn-down" class="btn-cursor" aria-label="下キー">&#8595;</button>
+          <button type="button" id="btn-enter" class="btn-cursor" aria-label="Enter">↵</button>
+          <div class="snippet-wrap">
+            <button type="button" id="btn-snippet" class="btn-cursor btn-snippet" aria-label="スニペット">S</button>
+            <div id="snippet-menu" hidden class="snippet-menu"></div>
+          </div>
+          <button type="button" id="btn-keys-more" class="btn-cursor btn-keys-more" aria-label="その他キー">…</button>
+          <button type="submit" id="btn-send" class="btn-send">送信</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- ===== 汎用モーダル ===== -->
+  <div id="modal-overlay" hidden class="modal-overlay">
+    <div class="modal-box">
+      <p id="modal-message" class="modal-message"></p>
+      <input id="modal-input" class="modal-input" hidden autocomplete="off">
+      <input id="modal-input2" class="modal-input" hidden autocomplete="off" placeholder="ディレクトリ (任意)">
+      <div class="modal-buttons">
+        <button id="modal-cancel" class="modal-btn modal-btn-cancel">キャンセル</button>
+        <button id="modal-ok" class="modal-btn modal-btn-ok">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== キーシート ===== -->
+  <div id="keys-sheet-overlay" hidden class="sheet-overlay">
+    <div class="sheet">
+      <div class="sheet-handle"></div>
+      <!-- カテゴリ一覧 -->
+      <div id="sheet-categories" class="sheet-grid">
+        <button type="button" class="sheet-category" data-submenu="ctrl">
+          <span class="sheet-key-icon">⌃</span>
+          <span class="sheet-key-label">Ctrl</span>
+        </button>
+        <button type="button" class="sheet-key" data-keys="BTab">
+          <span class="sheet-key-icon">⇤</span>
+          <span class="sheet-key-label">Shift+Tab</span>
+        </button>
+        <button type="button" class="sheet-category" data-submenu="commands">
+          <span class="sheet-key-icon">/</span>
+          <span class="sheet-key-label">コマンド</span>
+        </button>
+      </div>
+      <!-- Ctrl サブメニュー -->
+      <div id="sheet-ctrl" hidden class="sheet-sub">
+        <button type="button" class="sheet-back">← Ctrl</button>
+        <div class="sheet-grid">
+          <button type="button" class="sheet-key" data-keys="C-c">
+            <span class="sheet-key-icon">C</span>
+            <span class="sheet-key-label">中断</span>
+          </button>
+          <button type="button" class="sheet-key" data-keys="C-d">
+            <span class="sheet-key-icon">D</span>
+            <span class="sheet-key-label">EOF</span>
+          </button>
+          <button type="button" class="sheet-key" data-keys="C-o">
+            <span class="sheet-key-icon">O</span>
+            <span class="sheet-key-label">挿入</span>
+          </button>
+        </div>
+      </div>
+      <!-- コマンドサブメニュー -->
+      <div id="sheet-commands" hidden class="sheet-sub">
+        <button type="button" class="sheet-back">← コマンド</button>
+        <div class="sheet-cmd-list">
+          <button type="button" class="sheet-cmd" data-cmd="/compact">/compact</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== カードアクションメニュー ===== -->
+  <div id="card-menu" hidden class="card-menu">
+    <button id="card-menu-rename" class="card-menu-item">名前変更</button>
+    <button id="card-menu-delete" class="card-menu-item card-menu-danger">セッションを終了</button>
+  </div>
+
+  <script src="app.js?v=5"></script>
+  <script src="ws.js?v=5"></script>
+  <script src="ansi.js?v=5"></script>
+  <script src="views.js?v=5"></script>
+  <script src="input.js?v=5"></script>
+</body>
+</html>
