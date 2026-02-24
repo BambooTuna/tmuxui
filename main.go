@@ -19,6 +19,19 @@ func main() {
 	dev := flag.Bool("dev", false, "use filesystem instead of embedded assets")
 	flag.Parse()
 
+	if args := flag.Args(); len(args) > 0 {
+		switch args[0] {
+		case "version":
+			fmt.Printf("tmuxui %s\n", version)
+			return
+		case "update":
+			if err := runUpdate(); err != nil {
+				log.Fatal(err)
+			}
+			return
+		}
+	}
+
 	if *token == "" {
 		*token = os.Getenv("TMUXUI_TOKEN")
 	}
