@@ -7,10 +7,13 @@ const state = {
   sessions: [],
   currentSession: null,
   currentPane: null,
+  currentWindow: null,
+  expandedSessions: {},
   pendingPermission: null,
   reconnectTimer: null,
   refreshing: false,
   autoApprove: false,
+  claudeCommands: null,
 };
 
 const $ = id => document.getElementById(id);

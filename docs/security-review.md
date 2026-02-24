@@ -176,7 +176,7 @@ var upgrader = websocket.Upgrader{
 ### 攻撃シナリオ
 
 1. ユーザーがブラウザで `http://evil.com` にアクセス
-2. `evil.com` の JavaScript が `ws://localhost:8080/ws?token=xxx` に接続を試みる
+2. `evil.com` の JavaScript が `ws://localhost:6062/ws?token=xxx` に接続を試みる
 3. **ただし、トークンを知らなければ接続は403で拒否される**
 
 トークンが漏洩していない限り攻撃は成立しない。トークンはURLに含まれるため、理論上はブラウザ拡張機能や履歴から漏洩する可能性があるが、個人ツールにおいては現実的な脅威ではない。

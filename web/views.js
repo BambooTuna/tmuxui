@@ -93,22 +93,98 @@ async function renameSession(oldName) {
   loadSessions();
 }
 
+// ===== Window Management =====
+async function createWindow() {
+  const name = await showModal({ message: 'Window名（任意）', input: true, okLabel: '作成' });
+  if (name === null) return;
+  await apiFetch(`/api/sessions/${encodeURIComponent(state.currentSession)}/windows`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: typeof name === 'string' ? name : '' }),
+  });
+  loadSessions();
+}
+
+async function deleteWindow(sessionName, windowIndex) {
+  const ok = await showModal({ message: 'このWindowを閉じますか？', okLabel: '閉じる', okDanger: true });
+  if (!ok) return;
+  await apiFetch(`/api/sessions/${encodeURIComponent(sessionName)}/windows/${windowIndex}`, { method: 'DELETE' });
+  await loadSessions();
+  const session = state.sessions.find(s => s.name === sessionName);
+  if (!session || session.windows.length === 0) {
+    showSessionList();
+  } else if (state.currentSession === sessionName && state.currentWindow === windowIndex) {
+    showWindowDetail(sessionName, session.windows[0].index);
+  }
+}
+
+async function renameWindow(sessionName, windowIndex) {
+  const session = state.sessions.find(s => s.name === sessionName);
+  const win = session?.windows.find(w => w.index === windowIndex);
+  const newName = await showModal({ message: '新しいWindow名', input: true, inputValue: win?.name || '', okLabel: '変更' });
+  if (!newName) return;
+  await apiFetch(`/api/sessions/${encodeURIComponent(sessionName)}/windows/${windowIndex}/rename`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: newName }),
+  });
+  loadSessions();
+}
+
+// ===== Pane Management =====
+async function closePane(target) {
+  const ok = await showModal({ message: 'このペインを閉じますか？', okLabel: '閉じる', okDanger: true });
+  if (!ok) return;
+  await apiFetch(`/api/panes/${encodeURIComponent(target)}`, { method: 'DELETE' });
+  await loadSessions();
+  const session = state.sessions.find(s => s.name === state.currentSession);
+  const win = session?.windows.find(w => w.index === state.currentWindow);
+  if (!session || !win || win.panes.length === 0) {
+    showSessionList();
+  } else if (state.currentPane === target) {
+    showWindowDetail(state.currentSession, state.currentWindow);
+  } else {
+    renderPaneTabs();
+  }
+}
+
+async function addPane() {
+  if (!state.currentPane) return;
+  await apiFetch(`/api/panes/${encodeURIComponent(state.currentPane)}/split`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ horizontal: false }),
+  });
+  await loadSessions();
+  if (state.currentSession && state.currentWindow !== null) {
+    showWindowDetail(state.currentSession, state.currentWindow);
+  }
+}
+
 // ===== Card Menu =====
 let cardMenuTarget = null;
 
-function openCardMenu(sessionName, anchorEl) {
+function openCardMenu(sessionName) {
   cardMenuTarget = sessionName;
-  const menu = $('card-menu');
-  const rect = anchorEl.getBoundingClientRect();
-  menu.style.top = rect.bottom + 4 + 'px';
-  menu.style.right = (window.innerWidth - rect.right) + 'px';
-  menu.style.left = 'auto';
-  menu.hidden = false;
+  $('card-menu-overlay').hidden = false;
 }
 
 function closeCardMenu() {
-  $('card-menu').hidden = true;
+  $('card-menu-overlay').hidden = true;
   cardMenuTarget = null;
+}
+
+// ===== Window Menu =====
+let windowMenuTarget = null;
+
+function openWindowMenu(sessionName, windowIndex) {
+  windowMenuTarget = { session: sessionName, index: windowIndex };
+  $('window-menu-overlay').hidden = false;
+}
+
+function closeWindowMenu() {
+  $('window-menu-overlay').hidden = true;
+  windowMenuTarget = null;
 }
 
 // ===== Data Loading =====
@@ -136,27 +212,44 @@ function showSessionList() {
   }
   state.currentSession = null;
   state.currentPane = null;
+  state.currentWindow = null;
 
   $('view-detail').classList.remove('active');
   $('view-sessions').classList.add('active');
   loadSessions();
 }
 
-function showSessionDetail(sessionName) {
+function showWindowDetail(sessionName, windowIndex) {
   state.currentSession = sessionName;
-  $('session-title').textContent = sessionName;
+  state.currentWindow = windowIndex;
+  updateBreadcrumb();
 
   $('view-sessions').classList.remove('active');
   $('view-detail').classList.add('active');
   $('cmd-input').value = '';
 
   const session = state.sessions.find(s => s.name === sessionName);
-  if (session && session.panes.length > 0) {
+  const win = session?.windows.find(w => w.index === windowIndex);
+  if (win && win.panes.length > 0) {
     renderPaneTabs();
-    switchPane(session.panes[0].target);
+    switchPane(win.panes[0].target);
   } else {
     renderPaneTabs();
     $('pane-content').textContent = 'ペインがありません';
+  }
+}
+
+function updateBreadcrumb() {
+  const session = state.sessions.find(s => s.name === state.currentSession);
+  $('breadcrumb-session').textContent = state.currentSession || '';
+  if (session && session.windows.length > 1) {
+    const win = session.windows.find(w => w.index === state.currentWindow);
+    $('breadcrumb-sep').hidden = false;
+    $('breadcrumb-window').hidden = false;
+    $('breadcrumb-window').textContent = win ? win.name || `${win.index}` : '';
+  } else {
+    $('breadcrumb-sep').hidden = true;
+    $('breadcrumb-window').hidden = true;
   }
 }
 
@@ -176,6 +269,98 @@ function switchPane(target) {
   loadPaneContent(target);
 }
 
+
+function switchWindow(windowIndex) {
+  if (state.currentWindow === windowIndex) return;
+  if (state.currentPane) {
+    wsSend({ type: 'unsubscribe', target: state.currentPane });
+  }
+  state.currentWindow = windowIndex;
+  updateBreadcrumb();
+
+  const session = state.sessions.find(s => s.name === state.currentSession);
+  const win = session?.windows.find(w => w.index === windowIndex);
+  if (win && win.panes.length > 0) {
+    renderPaneTabs();
+    switchPane(win.panes[0].target);
+  }
+}
+
+function openWindowSheet() {
+  const session = state.sessions.find(s => s.name === state.currentSession);
+  if (!session) return;
+
+  $('window-sheet-header').textContent = session.name + ' の Windows';
+  const el = $('window-sheet-list');
+  el.innerHTML = '';
+
+  for (const win of session.windows) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:6px';
+
+    const btn = document.createElement('button');
+    btn.className = 'window-sheet-item';
+    btn.style.flex = '1';
+    btn.style.margin = '0';
+    if (win.index === state.currentWindow) btn.classList.add('active');
+    btn.textContent = `${win.index}:${win.name}`;
+    btn.addEventListener('click', () => {
+      closeWindowSheet();
+      switchWindow(win.index);
+    });
+
+    const menuBtn = document.createElement('button');
+    menuBtn.className = 'btn-card-menu';
+    menuBtn.textContent = '⋯';
+    menuBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      closeWindowSheet();
+      openWindowMenu(session.name, win.index);
+    });
+
+    row.appendChild(btn);
+    row.appendChild(menuBtn);
+    el.appendChild(row);
+  }
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'window-sheet-item window-sheet-add';
+  addBtn.textContent = '＋ 新規Window';
+  addBtn.addEventListener('click', () => {
+    closeWindowSheet();
+    createWindow();
+  });
+  el.appendChild(addBtn);
+
+  $('window-sheet-overlay').hidden = false;
+}
+
+function closeWindowSheet() {
+  $('window-sheet-overlay').hidden = true;
+}
+
+// ===== Pane Label =====
+function paneLabel(pane) {
+  if (pane.title && !pane.title.includes('.local') && pane.title !== pane.cmd) {
+    return pane.title;
+  }
+  return pane.cmd;
+}
+
+function paneLabels(panes) {
+  const labels = panes.map(p => paneLabel(p));
+  const count = {};
+  for (const l of labels) count[l] = (count[l] || 0) + 1;
+  const idx = {};
+  return labels.map(l => {
+    if (count[l] > 1) {
+      idx[l] = (idx[l] || 0) + 1;
+      return `${l} #${idx[l]}`;
+    }
+    return l;
+  });
+}
+
 // ===== Rendering =====
 function renderSessionList() {
   const el = $('session-list');
@@ -190,39 +375,95 @@ function renderSessionList() {
   }
 
   for (const session of state.sessions) {
-    const card = document.createElement('div');
-    card.className = 'session-card';
-    card.innerHTML =
-      `<span class="session-card-name">${esc(session.name)}</span>` +
-      `<span class="session-card-meta">${session.panes.length} panes</span>` +
-      `<button class="btn-card-menu" aria-label="メニュー">⋯</button>`;
-    const menuBtn = card.querySelector('.btn-card-menu');
-    menuBtn.addEventListener('click', e => {
-      e.stopPropagation();
-      openCardMenu(session.name, menuBtn);
-    });
-    card.addEventListener('click', () => showSessionDetail(session.name));
-    el.appendChild(card);
+    if (session.windows.length <= 1) {
+      el.appendChild(createSessionCard(session));
+    } else {
+      el.appendChild(createSessionGroup(session));
+    }
   }
 }
 
+function createSessionCard(session) {
+  const win = session.windows[0];
+  const paneCount = win ? win.panes.length : 0;
+  const cmd = win && win.panes.length > 0 ? win.panes[0].cmd : '';
+  const card = document.createElement('div');
+  card.className = 'session-card';
+  card.innerHTML =
+    `<span class="session-card-name">${esc(session.name)}</span>` +
+    `<span class="session-card-meta">${esc(cmd)} · ${paneCount} panes</span>` +
+    `<button class="btn-card-menu" aria-label="メニュー">⋯</button>`;
+  card.querySelector('.btn-card-menu').addEventListener('click', e => {
+    e.stopPropagation();
+    openCardMenu(session.name);
+  });
+  card.addEventListener('click', () => {
+    if (win) showWindowDetail(session.name, win.index);
+  });
+  return card;
+}
+
+function createSessionGroup(session) {
+  const isExpanded = !!state.expandedSessions[session.name];
+  const group = document.createElement('div');
+  group.className = 'session-group';
+
+  const header = document.createElement('div');
+  header.className = 'session-group-header';
+  header.innerHTML =
+    `<span class="toggle">${isExpanded ? '▾' : '▸'}</span>` +
+    `<span class="session-card-name" style="flex:1">${esc(session.name)} ` +
+    `<span class="session-card-meta">(${session.windows.length}w)</span></span>` +
+    `<button class="btn-card-menu" aria-label="メニュー">⋯</button>`;
+
+  header.querySelector('.btn-card-menu').addEventListener('click', e => {
+    e.stopPropagation();
+    openCardMenu(session.name);
+  });
+  header.addEventListener('click', () => {
+    state.expandedSessions[session.name] = !state.expandedSessions[session.name];
+    renderSessionList();
+  });
+  group.appendChild(header);
+
+  if (isExpanded) {
+    const body = document.createElement('div');
+    body.className = 'session-group-body';
+    for (const win of session.windows) {
+      const card = document.createElement('div');
+      card.className = 'window-card';
+      const cmd = win.panes.length > 0 ? win.panes[0].cmd : '';
+      card.innerHTML =
+        `<span class="window-card-name">${esc(win.index + ':' + win.name)}</span>` +
+        `<span class="window-card-meta">${esc(cmd)} · ${win.panes.length} panes</span>`;
+      card.addEventListener('click', () => showWindowDetail(session.name, win.index));
+      body.appendChild(card);
+    }
+    group.appendChild(body);
+  }
+
+  return group;
+}
+
 function renderPaneTabs() {
+  updateBreadcrumb();
   const el = $('pane-tabs');
   el.innerHTML = '';
 
   const session = state.sessions.find(s => s.name === state.currentSession);
-  if (!session) return;
+  const win = session?.windows.find(w => w.index === state.currentWindow);
+  if (!win) return;
 
-  for (const pane of session.panes) {
-    const paneId = pane.target.split(':')[1] || pane.target;
+  const labels = paneLabels(win.panes);
+  win.panes.forEach((pane, i) => {
     const btn = document.createElement('button');
     btn.className = 'pane-tab';
     if (pane.target === state.currentPane) btn.classList.add('active');
-    btn.textContent = `${paneId} ${pane.cmd}`;
+    btn.textContent = labels[i];
     btn.dataset.target = pane.target;
     btn.addEventListener('click', () => switchPane(pane.target));
     el.appendChild(btn);
-  }
+  });
   renderDrawerPanes();
 }
 
@@ -231,14 +472,18 @@ function renderDrawerPanes() {
   el.innerHTML = '';
 
   const session = state.sessions.find(s => s.name === state.currentSession);
-  if (!session) return;
+  const win = session?.windows.find(w => w.index === state.currentWindow);
+  if (!win) return;
 
-  for (const pane of session.panes) {
-    const paneId = pane.target.split(':')[1] || pane.target;
+  const labels = paneLabels(win.panes);
+  win.panes.forEach((pane, i) => {
+    const row = document.createElement('div');
+    row.className = 'drawer-item-row';
+
     const btn = document.createElement('button');
     btn.className = 'drawer-item';
     if (pane.target === state.currentPane) btn.classList.add('active');
-    btn.innerHTML = `${esc(paneId)}<span class="drawer-item-cmd">${esc(pane.cmd)}</span>` +
+    btn.innerHTML = `${esc(labels[i])}` +
       (pane.path ? `<span class="drawer-item-path" data-path="${esc(pane.path)}">${esc(pane.path)}</span>` : '');
     btn.dataset.target = pane.target;
     btn.addEventListener('click', () => {
@@ -256,8 +501,30 @@ function renderDrawerPanes() {
         }).catch(() => {});
       });
     }
-    el.appendChild(btn);
-  }
+    row.appendChild(btn);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'drawer-item-close';
+    closeBtn.textContent = '×';
+    closeBtn.ariaLabel = 'ペインを閉じる';
+    closeBtn.addEventListener('click', e => {
+      e.stopPropagation();
+      closeDrawer();
+      closePane(pane.target);
+    });
+    row.appendChild(closeBtn);
+
+    el.appendChild(row);
+  });
+
+  const addBtn = document.createElement('button');
+  addBtn.className = 'drawer-item drawer-item-add';
+  addBtn.textContent = '＋ ペイン追加';
+  addBtn.addEventListener('click', () => {
+    closeDrawer();
+    addPane();
+  });
+  el.appendChild(addBtn);
 }
 
 function openDrawer() {

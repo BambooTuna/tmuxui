@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>tmuxui</title>
-  <link rel="stylesheet" href="style.css?v=5">
+  <link rel="stylesheet" href="style.css?v=8">
 </head>
 <body>
 
@@ -24,7 +24,11 @@
   <div id="view-detail" class="view">
     <header class="header">
       <button id="btn-back" class="btn-back" aria-label="戻る">&#8592;</button>
-      <span id="session-title" class="session-title"></span>
+      <span class="session-title">
+        <span id="breadcrumb-session" class="breadcrumb-session"></span>
+        <span id="breadcrumb-sep" class="breadcrumb-sep">›</span>
+        <button id="breadcrumb-window" class="breadcrumb-window"></button>
+      </span>
       <button id="btn-auto-approve" class="btn-toggle" aria-label="自動許可">AUTO</button>
       <button id="btn-refresh" class="btn-icon" aria-label="更新">&#8635;</button>
       <button id="btn-menu" class="btn-icon" aria-label="メニュー">&#9776;</button>
@@ -46,19 +50,20 @@
     <div id="pane-content" class="pane-content"></div>
     <div class="input-area">
       <form id="cmd-form" class="input-form" action="javascript:void(0)">
-        <textarea id="cmd-input" class="cmd-input" rows="2" placeholder="コマンドを入力..."
-               autocomplete="off" autocorrect="off"
-               autocapitalize="off" spellcheck="false" enterkeyhint="enter"
-               aria-describedby="cmd-input-hint"></textarea>
+        <div class="cmd-input-wrap">
+          <div id="cmd-suggest" hidden class="cmd-suggest"></div>
+          <textarea id="cmd-input" class="cmd-input" rows="2" placeholder="コマンドを入力..."
+                 autocomplete="off" autocorrect="off"
+                 autocapitalize="off" spellcheck="false" enterkeyhint="enter"
+                 aria-describedby="cmd-input-hint"></textarea>
+        </div>
         <span id="cmd-input-hint" class="sr-only">送信ボタンで送信</span>
+        <!-- action-bar: 1階層目のボタン構成は変更しない。追加キーは keys-sheet 内に配置すること -->
         <div class="action-bar">
           <button type="button" id="btn-up" class="btn-cursor" aria-label="上キー">&#8593;</button>
           <button type="button" id="btn-down" class="btn-cursor" aria-label="下キー">&#8595;</button>
           <button type="button" id="btn-enter" class="btn-cursor" aria-label="Enter">↵</button>
-          <div class="snippet-wrap">
-            <button type="button" id="btn-snippet" class="btn-cursor btn-snippet" aria-label="スニペット">S</button>
-            <div id="snippet-menu" hidden class="snippet-menu"></div>
-          </div>
+          <button type="button" id="btn-snippet" class="btn-cursor btn-snippet" aria-label="スニペット">S</button>
           <button type="button" id="btn-keys-more" class="btn-cursor btn-keys-more" aria-label="その他キー">…</button>
           <button type="submit" id="btn-send" class="btn-send">送信</button>
         </div>
@@ -69,6 +74,7 @@
   <!-- ===== 汎用モーダル ===== -->
   <div id="modal-overlay" hidden class="modal-overlay">
     <div class="modal-box">
+      <div class="sheet-handle"></div>
       <p id="modal-message" class="modal-message"></p>
       <input id="modal-input" class="modal-input" hidden autocomplete="off">
       <input id="modal-input2" class="modal-input" hidden autocomplete="off" placeholder="ディレクトリ (任意)">
@@ -79,12 +85,36 @@
     </div>
   </div>
 
+  <!-- ===== Window切替シート ===== -->
+  <div id="window-sheet-overlay" hidden class="sheet-overlay">
+    <div class="sheet">
+      <div class="sheet-handle"></div>
+      <div id="window-sheet-header" class="drawer-header"></div>
+      <div id="window-sheet-list"></div>
+    </div>
+  </div>
+
+  <!-- ===== Windowアクションメニュー ===== -->
+  <div id="window-menu-overlay" hidden class="sheet-overlay">
+    <div class="sheet action-sheet">
+      <div class="sheet-handle"></div>
+      <button id="window-menu-rename" class="action-sheet-item">名前変更</button>
+      <button id="window-menu-add" class="action-sheet-item">新規Window</button>
+      <button id="window-menu-close" class="action-sheet-item action-sheet-danger">Windowを閉じる</button>
+      <button id="window-menu-cancel" class="action-sheet-item action-sheet-cancel">キャンセル</button>
+    </div>
+  </div>
+
   <!-- ===== キーシート ===== -->
   <div id="keys-sheet-overlay" hidden class="sheet-overlay">
     <div class="sheet">
       <div class="sheet-handle"></div>
       <!-- カテゴリ一覧 -->
       <div id="sheet-categories" class="sheet-grid">
+        <button type="button" class="sheet-key" data-keys="Escape">
+          <span class="sheet-key-icon">⎋</span>
+          <span class="sheet-key-label">Esc</span>
+        </button>
         <button type="button" class="sheet-category" data-submenu="ctrl">
           <span class="sheet-key-icon">⌃</span>
           <span class="sheet-key-label">Ctrl</span>
@@ -119,23 +149,66 @@
       <!-- コマンドサブメニュー -->
       <div id="sheet-commands" hidden class="sheet-sub">
         <button type="button" class="sheet-back">← コマンド</button>
-        <div class="sheet-cmd-list">
-          <button type="button" class="sheet-cmd" data-cmd="/compact">/compact</button>
+        <div class="sheet-cmd-list"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== スニペット管理シート ===== -->
+  <div id="snippet-sheet-overlay" hidden class="sheet-overlay">
+    <div class="sheet snippet-sheet">
+      <div class="sheet-handle"></div>
+      <!-- 一覧ビュー -->
+      <div id="snippet-sheet-list">
+        <button type="button" id="btn-snippet-create" class="snippet-create-btn">＋ 新規作成</button>
+        <div id="snippet-sheet-items" class="snippet-sheet-items"></div>
+      </div>
+      <!-- 編集ビュー -->
+      <div id="snippet-sheet-edit" hidden class="sheet-sub">
+        <button type="button" id="snippet-edit-back" class="sheet-back">← スニペット編集</button>
+        <input id="snippet-edit-name" class="modal-input" placeholder="ファイル名">
+        <textarea id="snippet-edit-content" class="snippet-edit-textarea" rows="8" placeholder="内容を入力..."></textarea>
+        <div class="modal-buttons">
+          <button type="button" id="snippet-edit-cancel" class="modal-btn modal-btn-cancel">キャンセル</button>
+          <button type="button" id="snippet-edit-save" class="modal-btn modal-btn-ok">保存</button>
         </div>
       </div>
     </div>
   </div>
 
   <!-- ===== カードアクションメニュー ===== -->
-  <div id="card-menu" hidden class="card-menu">
-    <button id="card-menu-rename" class="card-menu-item">名前変更</button>
-    <button id="card-menu-delete" class="card-menu-item card-menu-danger">セッションを終了</button>
+  <div id="card-menu-overlay" hidden class="sheet-overlay">
+    <div class="sheet action-sheet">
+      <div class="sheet-handle"></div>
+      <button id="card-menu-rename" class="action-sheet-item">名前変更</button>
+      <button id="card-menu-delete" class="action-sheet-item action-sheet-danger">セッションを終了</button>
+      <button id="card-menu-cancel" class="action-sheet-item action-sheet-cancel">キャンセル</button>
+    </div>
   </div>
 
-  <script src="app.js?v=5"></script>
-  <script src="ws.js?v=5"></script>
-  <script src="ansi.js?v=5"></script>
-  <script src="views.js?v=5"></script>
-  <script src="input.js?v=5"></script>
+  <!-- ===== スニペットクイック挿入メニュー ===== -->
+  <div id="snippet-menu-overlay" hidden class="sheet-overlay">
+    <div class="sheet action-sheet">
+      <div class="sheet-handle"></div>
+      <div id="snippet-menu" class="snippet-menu-sheet"></div>
+    </div>
+  </div>
+
+  <!-- ===== スニペット項目メニュー ===== -->
+  <div id="snippet-item-menu-overlay" hidden class="sheet-overlay" style="z-index:250">
+    <div class="sheet action-sheet">
+      <div class="sheet-handle"></div>
+      <button id="snippet-item-edit" class="action-sheet-item">編集</button>
+      <button id="snippet-item-delete" class="action-sheet-item action-sheet-danger">削除</button>
+      <button id="snippet-item-cancel" class="action-sheet-item action-sheet-cancel">キャンセル</button>
+    </div>
+  </div>
+
+  <script src="app.js?v=8"></script>
+  <script src="ws.js?v=8"></script>
+  <script src="ansi.js?v=8"></script>
+  <script src="views.js?v=8"></script>
+  <script src="snippet.js?v=8"></script>
+  <script src="input.js?v=8"></script>
 </body>
 </html>

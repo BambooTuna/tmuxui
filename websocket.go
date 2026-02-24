@@ -14,15 +14,15 @@ var upgrader = websocket.Upgrader{
 }
 
 type WSMessage struct {
-	Type    string `json:"type"`
-	Target  string `json:"target,omitempty"`
-	Content string `json:"content,omitempty"`
-	Ts      int64  `json:"ts,omitempty"`
-	Panes   []Pane `json:"panes,omitempty"`
-	Prompt  string `json:"prompt,omitempty"`
-	Keys    string `json:"keys,omitempty"`
-	Cols    int    `json:"cols,omitempty"`
-	Rows    int    `json:"rows,omitempty"`
+	Type     string    `json:"type"`
+	Target   string    `json:"target,omitempty"`
+	Content  string    `json:"content,omitempty"`
+	Ts       int64     `json:"ts,omitempty"`
+	Sessions []Session `json:"sessions,omitempty"`
+	Prompt   string    `json:"prompt,omitempty"`
+	Keys     string    `json:"keys,omitempty"`
+	Cols     int       `json:"cols,omitempty"`
+	Rows     int       `json:"rows,omitempty"`
 }
 
 type Client struct {
@@ -135,11 +135,7 @@ func (h *Hub) broadcastPaneList() {
 	if err != nil {
 		return
 	}
-	var panes []Pane
-	for _, s := range sessions {
-		panes = append(panes, s.Panes...)
-	}
-	msg, _ := json.Marshal(WSMessage{Type: "pane_list", Panes: panes})
+	msg, _ := json.Marshal(WSMessage{Type: "pane_list", Sessions: sessions})
 
 	h.mu.RLock()
 	clients := make([]*Client, 0, len(h.clients))
@@ -174,11 +170,7 @@ func handleWS(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	go c.writePump()
 
 	if sessions, err := listSessions(); err == nil {
-		var panes []Pane
-		for _, s := range sessions {
-			panes = append(panes, s.Panes...)
-		}
-		if msg, err := json.Marshal(WSMessage{Type: "pane_list", Panes: panes}); err == nil {
+		if msg, err := json.Marshal(WSMessage{Type: "pane_list", Sessions: sessions}); err == nil {
 			c.send <- msg
 		}
 	}

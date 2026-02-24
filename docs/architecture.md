@@ -421,7 +421,7 @@ func detectPermission(content string) (bool, string) {
 
 ```
 $ ./tmuxui
-tmuxui started on http://localhost:8080?token=a3f8b2c1d4e5
+tmuxui started on http://localhost:6062?token=a3f8b2c1d4e5
 ```
 
 1. 起動時に暗号学的に安全なランダムトークン（16バイト hex）を生成
@@ -432,7 +432,7 @@ tmuxui started on http://localhost:8080?token=a3f8b2c1d4e5
 
 ### localhostバインド
 
-- デフォルトは `127.0.0.1:8080`（ローカルのみ）
+- デフォルトは `127.0.0.1:6062`（ローカルのみ）
 - `--host 0.0.0.0` オプションで外部アクセス許可（ポートフォワード経由で使う場合）
 - 外部公開時はトークン認証が唯一の防御線（それで十分）
 
@@ -474,14 +474,14 @@ tmuxui/
 # ビルド
 go build -o tmuxui .
 
-# 実行（デフォルト: localhost:8080）
+# 実行（デフォルト: localhost:6062）
 ./tmuxui
 
 # ポート指定
 ./tmuxui --port 3000
 
 # 外部アクセス許可（ポートフォワード用）
-./tmuxui --host 0.0.0.0 --port 8080
+./tmuxui --host 0.0.0.0 --port 6062
 
 # 開発モード（web/からファイル直接読み込み、リロードで反映）
 ./tmuxui --dev
@@ -491,7 +491,7 @@ go build -o tmuxui .
 
 | オプション | デフォルト | 説明 |
 |---|---|---|
-| `--port` | 8080 | リッスンポート |
+| `--port` | 6062 | リッスンポート |
 | `--host` | 127.0.0.1 | バインドアドレス |
 | `--token` | (自動生成) | 認証トークン指定（固定したい場合） |
 | `--dev` | false | 開発モード（embed使わずファイル直接配信） |

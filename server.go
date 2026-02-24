@@ -22,13 +22,22 @@ func newServer(token string, hub *Hub, dev bool) http.Handler {
 	}
 
 	mux.HandleFunc("GET /api/sessions", handleSessions)
-	mux.HandleFunc("POST /api/sessions", handleCreateSession)
-	mux.HandleFunc("DELETE /api/sessions/{name}", handleKillSession)
-	mux.HandleFunc("POST /api/sessions/{name}/rename", handleRenameSession)
+	mux.HandleFunc("POST /api/sessions", withPaneNotify(hub, handleCreateSession))
+	mux.HandleFunc("DELETE /api/sessions/{name}", withPaneNotify(hub, handleKillSession))
+	mux.HandleFunc("POST /api/sessions/{name}/rename", withPaneNotify(hub, handleRenameSession))
+	mux.HandleFunc("POST /api/sessions/{name}/windows", withPaneNotify(hub, handleCreateWindow))
+	mux.HandleFunc("DELETE /api/sessions/{name}/windows/{index}", withPaneNotify(hub, handleKillWindow))
+	mux.HandleFunc("POST /api/sessions/{name}/windows/{index}/rename", withPaneNotify(hub, handleRenameWindow))
 	mux.HandleFunc("GET /api/panes/{target}/content", handlePaneContent)
 	mux.HandleFunc("POST /api/panes/{target}/keys", handlePaneKeys)
+	mux.HandleFunc("DELETE /api/panes/{target}", withPaneNotify(hub, handleKillPane))
+	mux.HandleFunc("POST /api/panes/{target}/split", withPaneNotify(hub, handleSplitPane))
+	mux.HandleFunc("GET /api/claude/commands", handleClaudeCommands)
 	mux.HandleFunc("GET /api/snippets", handleSnippetList)
 	mux.HandleFunc("GET /api/snippets/{name}", handleSnippetContent)
+	mux.HandleFunc("POST /api/snippets", handleCreateSnippet)
+	mux.HandleFunc("PUT /api/snippets/{name}", handleUpdateSnippet)
+	mux.HandleFunc("DELETE /api/snippets/{name}", handleDeleteSnippet)
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		handleWS(hub, w, r)
 	})
@@ -43,6 +52,13 @@ func newServer(token string, hub *Hub, dev bool) http.Handler {
 	}
 
 	return authMiddleware(token, mux)
+}
+
+func withPaneNotify(hub *Hub, next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		next(w, r)
+		go hub.broadcastPaneList()
+	}
 }
 
 func authMiddleware(validToken string, next http.Handler) http.Handler {

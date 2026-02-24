@@ -335,7 +335,7 @@ if devMode {
 # 開発時: devモードで起動（リロード対応）
 ./tmuxui --dev
 
-# ブラウザで http://localhost:8080?token=xxx にアクセス
+# ブラウザで http://localhost:6062?token=xxx にアクセス
 # web/app.js や style.css を編集 → ブラウザリロード → 変更反映
 
 # 本番ビルド: dev フラグなしで起動

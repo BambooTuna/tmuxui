@@ -7,15 +7,19 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"os"
 )
 
 func main() {
-	port := flag.Int("port", 8080, "listen port")
+	port := flag.Int("port", 6062, "listen port")
 	host := flag.String("host", "127.0.0.1", "bind address")
 	token := flag.String("token", "", "auth token (auto-generated if empty)")
 	dev := flag.Bool("dev", false, "use filesystem instead of embedded assets")
 	flag.Parse()
 
+	if *token == "" {
+		*token = os.Getenv("TMUXUI_TOKEN")
+	}
 	if *token == "" {
 		b := make([]byte, 16)
 		if _, err := rand.Read(b); err != nil {

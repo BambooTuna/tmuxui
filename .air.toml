@@ -3,7 +3,8 @@ tmp_dir = "tmp"
 
 [build]
   cmd = "go build -o ./tmp/tmuxui ."
-  bin = "./tmp/tmuxui --dev --token bambootuna --host 0.0.0.0"
+  bin = "./tmp/tmuxui"
+  full_bin = "set -a; source .env 2>/dev/null; set +a; ./tmp/tmuxui --dev --host 0.0.0.0"
   include_ext = ["go"]
   exclude_dir = ["tmp", "web", "docs"]
   delay = 500

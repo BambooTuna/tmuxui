@@ -57,8 +57,8 @@ function handleWSMessage(msg) {
       break;
 
     case 'pane_list':
-      if (Array.isArray(msg.panes)) {
-        state.sessions = groupPanesBySession(msg.panes);
+      if (Array.isArray(msg.sessions)) {
+        state.sessions = msg.sessions;
         if ($('view-sessions').classList.contains('active')) {
           renderSessionList();
         }
@@ -74,15 +74,6 @@ function handleWSMessage(msg) {
   }
 }
 
-function groupPanesBySession(panes) {
-  const map = new Map();
-  for (const pane of panes) {
-    const name = pane.target.split(':')[0];
-    if (!map.has(name)) map.set(name, { name, panes: [] });
-    map.get(name).panes.push(pane);
-  }
-  return Array.from(map.values());
-}
 
 function setWsStatus(status) {
   state.wsStatus = status;

@@ -10,16 +10,24 @@ import (
 
 type Pane struct {
 	Target string `json:"target"`
+	Title  string `json:"title"`
 	Cmd    string `json:"cmd"`
 	Size   string `json:"size"`
 	Path   string `json:"path"`
 }
 
+type Window struct {
+	Index  int    `json:"index"`
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Active bool   `json:"active"`
+	Panes  []Pane `json:"panes"`
+}
+
 type Session struct {
-	Name     string `json:"name"`
-	Windows  int    `json:"windows"`
-	Attached bool   `json:"attached"`
-	Panes    []Pane `json:"panes"`
+	Name     string   `json:"name"`
+	Attached bool     `json:"attached"`
+	Windows  []Window `json:"windows"`
 }
 
 type PaneContent struct {
@@ -31,13 +39,12 @@ type PaneContent struct {
 
 func listSessions() ([]Session, error) {
 	sessOut, err := exec.Command("tmux", "list-sessions",
-		"-F", "#{session_name}\t#{session_windows}\t#{session_attached}").Output()
+		"-F", "#{session_name}\t#{session_attached}").Output()
 	if err != nil {
 		return nil, err
 	}
 
 	type sessEntry struct {
-		windows  int
 		attached bool
 	}
 	sessMap := map[string]*sessEntry{}
@@ -47,47 +54,78 @@ func listSessions() ([]Session, error) {
 		if line == "" {
 			continue
 		}
-		parts := strings.SplitN(line, "\t", 3)
-		if len(parts) < 3 {
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) < 2 {
 			continue
 		}
-		windows, _ := strconv.Atoi(parts[1])
-		sessMap[parts[0]] = &sessEntry{windows: windows, attached: parts[2] == "1"}
+		sessMap[parts[0]] = &sessEntry{attached: parts[1] == "1"}
 		sessOrder = append(sessOrder, parts[0])
 	}
 
 	paneOut, err := exec.Command("tmux", "list-panes", "-a",
-		"-F", "#{session_name}\t#{window_index}\t#{pane_index}\t#{pane_current_command}\t#{pane_width}\t#{pane_height}\t#{pane_current_path}").Output()
+		"-F", "#{session_name}\t#{window_index}\t#{window_id}\t#{window_name}\t#{window_active}\t#{pane_index}\t#{pane_current_command}\t#{pane_width}\t#{pane_height}\t#{pane_current_path}\t#{pane_title}").Output()
 	if err != nil {
 		return nil, err
 	}
 
-	panesMap := map[string][]Pane{}
+	type winKey struct {
+		session string
+		index   int
+	}
+	type winEntry struct {
+		id     string
+		name   string
+		active bool
+		panes  []Pane
+	}
+	winMap := map[winKey]*winEntry{}
+	winOrder := map[string][]int{}
+
 	for _, line := range strings.Split(strings.TrimSpace(string(paneOut)), "\n") {
 		if line == "" {
 			continue
 		}
-		parts := strings.SplitN(line, "\t", 7)
-		if len(parts) < 7 {
+		parts := strings.SplitN(line, "\t", 11)
+		if len(parts) < 10 {
 			continue
 		}
-		target := fmt.Sprintf("%s:%s.%s", parts[0], parts[1], parts[2])
-		size := fmt.Sprintf("%sx%s", parts[4], parts[5])
-		panesMap[parts[0]] = append(panesMap[parts[0]], Pane{Target: target, Cmd: parts[3], Size: size, Path: parts[6]})
+		sessName := parts[0]
+		winIdx, _ := strconv.Atoi(parts[1])
+		paneTitle := ""
+		if len(parts) >= 11 {
+			paneTitle = parts[10]
+		}
+		target := fmt.Sprintf("%s:%d.%s", sessName, winIdx, parts[5])
+		size := fmt.Sprintf("%sx%s", parts[7], parts[8])
+		pane := Pane{Target: target, Title: paneTitle, Cmd: parts[6], Size: size, Path: parts[9]}
+
+		key := winKey{session: sessName, index: winIdx}
+		if _, ok := winMap[key]; !ok {
+			winMap[key] = &winEntry{id: parts[2], name: parts[3], active: parts[4] == "1"}
+			winOrder[sessName] = append(winOrder[sessName], winIdx)
+		}
+		winMap[key].panes = append(winMap[key].panes, pane)
 	}
 
 	sessions := make([]Session, 0, len(sessOrder))
-	for _, name := range sessOrder {
-		e := sessMap[name]
-		panes := panesMap[name]
-		if panes == nil {
-			panes = []Pane{}
+	for _, sessName := range sessOrder {
+		e := sessMap[sessName]
+		windows := make([]Window, 0)
+		for _, winIdx := range winOrder[sessName] {
+			key := winKey{session: sessName, index: winIdx}
+			we := winMap[key]
+			windows = append(windows, Window{
+				Index:  winIdx,
+				ID:     we.id,
+				Name:   we.name,
+				Active: we.active,
+				Panes:  we.panes,
+			})
 		}
 		sessions = append(sessions, Session{
-			Name:     name,
-			Windows:  e.windows,
+			Name:     sessName,
 			Attached: e.attached,
-			Panes:    panes,
+			Windows:  windows,
 		})
 	}
 	return sessions, nil
@@ -125,6 +163,34 @@ func killSession(name string) error {
 
 func renameSession(oldName, newName string) error {
 	return exec.Command("tmux", "rename-session", "-t", oldName, newName).Run()
+}
+
+func newWindow(sessionName, windowName string) error {
+	args := []string{"new-window", "-t", sessionName}
+	if windowName != "" {
+		args = append(args, "-n", windowName)
+	}
+	return exec.Command("tmux", args...).Run()
+}
+
+func killWindow(target string) error {
+	return exec.Command("tmux", "kill-window", "-t", target).Run()
+}
+
+func renameWindow(target, newName string) error {
+	return exec.Command("tmux", "rename-window", "-t", target, newName).Run()
+}
+
+func killPane(target string) error {
+	return exec.Command("tmux", "kill-pane", "-t", target).Run()
+}
+
+func splitPane(target string, horizontal bool) error {
+	args := []string{"split-window", "-t", target}
+	if horizontal {
+		args = append(args, "-h")
+	}
+	return exec.Command("tmux", args...).Run()
 }
 
 func sendKeys(target, keys string) error {

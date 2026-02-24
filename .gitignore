@@ -2,5 +2,11 @@
 tmuxui
 tmp/
 
+# GoReleaser
+dist/
+
+# Environment
+.env
+
 # IDE
 .claude/
