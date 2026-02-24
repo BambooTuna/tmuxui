@@ -15,7 +15,7 @@
 
 ## 必要なもの
 
-- **Go 1.23 以上**
+- **Go 1.24 以上**
 - **tmux**（ローカルにインストール済みで、**セッションが起動中**であること）
 
 ### tmux のインストール
@@ -37,54 +37,123 @@ apt install tmux
 
 ## インストール・ビルド
 
-### 方法 1: go install でインストール（推奨）
+### 方法 1: go install でインストール
+
+Go がインストール済みの方向けです。
 
 ```bash
 go install github.com/BambooTuna/tmuxui@latest
 ```
 
-その後 `tmuxui` コマンドで起動できます。
-
-### 方法 2: GitHub Releases からダウンロード
-
-最新バージョンは [GitHub Releases](https://github.com/BambooTuna/tmuxui/releases) から確認してください。
-以下は v0.1.0 の例（バージョン部分は適宜置き換えてください）：
+インストール後、動作確認します：
 
 ```bash
-# macOS (Apple Silicon)
-curl -L https://github.com/BambooTuna/tmuxui/releases/download/v0.1.0/tmuxui_0.1.0_Darwin_arm64.tar.gz -o tmuxui.tar.gz
-
-# macOS (Intel)
-curl -L https://github.com/BambooTuna/tmuxui/releases/download/v0.1.0/tmuxui_0.1.0_Darwin_amd64.tar.gz -o tmuxui.tar.gz
-
-# Linux (x86_64)
-curl -L https://github.com/BambooTuna/tmuxui/releases/download/v0.1.0/tmuxui_0.1.0_Linux_amd64.tar.gz -o tmuxui.tar.gz
-
-# Linux (arm64)
-curl -L https://github.com/BambooTuna/tmuxui/releases/download/v0.1.0/tmuxui_0.1.0_Linux_arm64.tar.gz -o tmuxui.tar.gz
+tmuxui --help
 ```
 
-ダウンロード後、以下で PATH に配置します：
+> **`command not found` になる場合**: Go のバイナリ配置先が PATH に含まれていない可能性があります。以下をシェルの設定ファイルに追加してください：
+>
+> ```bash
+> # ~/.zshrc または ~/.bashrc に追記
+> export PATH="$(go env GOPATH)/bin:$PATH"
+> ```
+>
+> 追加後、ターミナルを再起動するか `source ~/.zshrc`（bash の場合は `source ~/.bashrc`）を実行してください。
+
+### 方法 2: GitHub Releases からダウンロード（Go 不要）
+
+Go をインストールしていない場合はこちらの方法が便利です。
+
+#### ステップ 1: 自分の環境を確認
+
+まず、ターミナルで以下を実行して自分の環境を確認します：
 
 ```bash
+uname -ms
+```
+
+表示結果を見て、以下のどれに当てはまるか確認してください：
+
+| 表示結果 | 環境 |
+|---------|------|
+| `Darwin arm64` | macOS（Apple Silicon: M1/M2/M3/M4） |
+| `Darwin x86_64` | macOS（Intel） |
+| `Linux x86_64` | Linux（x86_64） |
+| `Linux aarch64` | Linux（arm64） |
+
+#### ステップ 2: ダウンロードして配置
+
+自分の環境に合ったコマンドを **1つだけ** コピーして実行してください：
+
+**macOS（Apple Silicon: M1/M2/M3/M4）の場合：**
+
+```bash
+curl -L https://github.com/BambooTuna/tmuxui/releases/latest/download/tmuxui_1.0.0_darwin_arm64.tar.gz -o tmuxui.tar.gz
+```
+
+**macOS（Intel）の場合：**
+
+```bash
+curl -L https://github.com/BambooTuna/tmuxui/releases/latest/download/tmuxui_1.0.0_darwin_amd64.tar.gz -o tmuxui.tar.gz
+```
+
+**Linux（x86_64）の場合：**
+
+```bash
+curl -L https://github.com/BambooTuna/tmuxui/releases/latest/download/tmuxui_1.0.0_linux_amd64.tar.gz -o tmuxui.tar.gz
+```
+
+**Linux（arm64）の場合：**
+
+```bash
+curl -L https://github.com/BambooTuna/tmuxui/releases/latest/download/tmuxui_1.0.0_linux_arm64.tar.gz -o tmuxui.tar.gz
+```
+
+#### ステップ 3: 展開してインストール
+
+ダウンロードしたファイルを展開し、コマンドとして使えるように配置します：
+
+```bash
+# ダウンロードしたファイルを展開
 tar xzf tmuxui.tar.gz
+
+# コマンドとして使えるように配置（パスワードを聞かれたら Mac のログインパスワードを入力）
 sudo mv tmuxui /usr/local/bin/
+
+# ダウンロードした圧縮ファイルを削除（不要になったため）
+rm tmuxui.tar.gz
 ```
 
-その後 `tmuxui` コマンドで起動できます。
+#### ステップ 4: 動作確認
+
+```bash
+tmuxui --help
+```
+
+`Usage of tmuxui:` と表示されれば成功です。
+
+> 最新バージョンは [GitHub Releases](https://github.com/BambooTuna/tmuxui/releases) で確認できます。上記 URL のバージョン番号部分を置き換えてください。
 
 ### 方法 3: ソースからビルド
 
+Go がインストール済みで、最新の開発版を使いたい場合向けです。
+
 ```bash
-# リポジトリをクローン
+# ソースコードをダウンロード
 git clone https://github.com/BambooTuna/tmuxui.git
 cd tmuxui
 
-# ビルド
+# ビルド（カレントディレクトリに tmuxui ファイルが生成されます）
 go build -o tmuxui .
 
-# 実行可能ファイルが生成される
-./tmuxui
+# 動作確認
+./tmuxui --help
+```
+
+どこからでも `tmuxui` コマンドで使いたい場合は、PATH の通った場所に配置します：
+
+```bash
+sudo mv tmuxui /usr/local/bin/
 ```
 
 ---
