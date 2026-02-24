@@ -1,5 +1,8 @@
 # tmuxui
 
+[![Release](https://img.shields.io/github/release/BambooTuna/tmuxui.svg)](https://github.com/BambooTuna/tmuxui/releases)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 **PCで tmux + Claude Code エージェントチームによる開発中に、外出先のスマートフォンから tmux セッションを監視・操作できる Webアプリケーション。**
 
 ---
@@ -12,7 +15,7 @@
 
 ## 必要なもの
 
-- **Go 1.22 以上**
+- **Go 1.23 以上**
 - **tmux**（ローカルにインストール済みで、**セッションが起動中**であること）
 
 ### tmux のインストール
@@ -44,12 +47,31 @@ go install github.com/BambooTuna/tmuxui@latest
 
 ### 方法 2: GitHub Releases からダウンロード
 
+最新バージョンは [GitHub Releases](https://github.com/BambooTuna/tmuxui/releases) から確認してください。
+以下は v0.1.0 の例（バージョン部分は適宜置き換えてください）：
+
 ```bash
-# Linux/macOS の例
-curl -L https://github.com/BambooTuna/tmuxui/releases/download/v0.1.0/tmuxui_0.1.0_darwin_amd64.tar.gz -o tmuxui.tar.gz
-tar xzf tmuxui.tar.gz
-./tmuxui
+# macOS (Apple Silicon)
+curl -L https://github.com/BambooTuna/tmuxui/releases/download/v0.1.0/tmuxui_0.1.0_Darwin_arm64.tar.gz -o tmuxui.tar.gz
+
+# macOS (Intel)
+curl -L https://github.com/BambooTuna/tmuxui/releases/download/v0.1.0/tmuxui_0.1.0_Darwin_amd64.tar.gz -o tmuxui.tar.gz
+
+# Linux (x86_64)
+curl -L https://github.com/BambooTuna/tmuxui/releases/download/v0.1.0/tmuxui_0.1.0_Linux_amd64.tar.gz -o tmuxui.tar.gz
+
+# Linux (arm64)
+curl -L https://github.com/BambooTuna/tmuxui/releases/download/v0.1.0/tmuxui_0.1.0_Linux_arm64.tar.gz -o tmuxui.tar.gz
 ```
+
+ダウンロード後、以下で PATH に配置します：
+
+```bash
+tar xzf tmuxui.tar.gz
+sudo mv tmuxui /usr/local/bin/
+```
+
+その後 `tmuxui` コマンドで起動できます。
 
 ### 方法 3: ソースからビルド
 
@@ -119,44 +141,98 @@ Access URL: http://127.0.0.1:6062?token=a3f8b2c1d4e5f6a7
 
 ---
 
-## 📲 スマートフォンからのアクセス
+## 📲 外出先からスマートフォンでアクセスする
 
-### 方法 1: 同一ネットワーク内
+Tailscale（VPN）と Termius（SSHクライアント）を使って、外出先の iPhone から MacBook 上の tmuxui にアクセスする手順です。
 
-1. PC で外部からのアクセスを許可して起動：
+### 事前準備
+
+#### Tailscale のセットアップ
+
+1. **MacBook**: [tailscale.com/download](https://tailscale.com/download/mac) からインストール（または `brew install --cask tailscale`）
+2. **iPhone**: App Store から [Tailscale](https://apps.apple.com/app/tailscale/id1470499037) をインストール
+3. 両方のデバイスで同じアカウント（Google/GitHub/Apple等）でログイン
+4. 接続確認:
+
+```bash
+# MacのTailscale IPを確認
+tailscale ip
+# → 100.x.y.z
+```
+
+> 無料プランで十分です（個人利用: 3ユーザー・100デバイスまで）
+
+<!-- TODO: Tailscale設定画面のスクリーンショット -->
+<!-- ![Tailscale接続確認](docs/images/tailscale-status.png) -->
+
+#### Termius のセットアップ（iPhone）
+
+1. App Store から [Termius](https://apps.apple.com/app/termius-modern-ssh-client/id549039908) をインストール（無料版でOK）
+
+2. **SSH接続を追加**: 「+」→「New Host」
+
+| 項目 | 値 |
+|------|-----|
+| Hostname | MacBookのTailscale IP（例: `100.x.y.z`）|
+| Port | `22` |
+| Username | Macのユーザー名 |
+| Password / Key | 任意の認証方法 |
+
+3. **ポートフォワードを追加**: 下部メニュー「Port Forwarding」→「New Rule」
+
+| 項目 | 値 |
+|------|-----|
+| Type | Local |
+| Local port | `6062` |
+| Destination host | `localhost` |
+| Destination port | `6062` |
+| SSH Host | 上で登録したMacBook |
+
+<!-- TODO: Termius設定画面のスクリーンショット -->
+<!-- ![Termiusポートフォワード設定](docs/images/termius-portforward.png) -->
+
+### アクセス手順
+
+1. MacBookで tmuxui を起動:
+
+```bash
+# トークンを固定すると毎回URL入力が楽
+export TMUXUI_TOKEN=mytoken
+tmuxui
+```
+
+> `--host 0.0.0.0` は不要です。SSHポートフォワード経由なので localhost のままアクセスできます。
+
+2. iPhone の Termius でポートフォワードルールの ▶ をタップして接続
+
+3. Safari で以下を開く:
+
+```
+http://localhost:6062?token=mytoken
+```
+
+> **Tips**: SafariでURLをホーム画面に追加すると、次回からワンタップでアクセスできます。
+
+> **注意**: iOSの制限により、Termiusをバックグラウンドに移すと接続が切れることがあります。アクセス中はTermiusをアクティブに保ってください。
+
+### その他の方法
+
+#### 同一ネットワーク内（家庭内WiFiなど）
+
+PC とスマートフォンが同じWiFiに接続されている場合は、Tailscaleなしで直接アクセスできます：
 
 ```bash
 ./tmuxui --host 0.0.0.0 --port 6062
 ```
 
-2. PC のIPアドレスを確認：
+PC のIPアドレス（`ifconfig` で確認）を使って `http://192.168.1.xxx:6062?token=...` にアクセスしてください。
+
+#### Termius以外のSSHクライアントを使う場合
 
 ```bash
-# macOS/Linux
-ifconfig
-
-# または
-ip addr
+# ローカルポートフォワード（スマートフォン側で実行）
+ssh -L 6062:localhost:6062 user@your-mac-tailscale-ip
 ```
-
-3. PC と同じ WiFi にスマートフォンが接続
-4. 起動時に表示されたURL（例: `http://192.168.1.100:6062?token=...`）をスマートフォンのブラウザで開く
-
-### 方法 2: SSH ポートフォワード
-
-外出先など異なるネットワーク環境では、SSH ポートフォワードを使用：
-
-```bash
-# スマートフォン側で以下を実行（例: iOS Termius App）
-ssh -L 6062:localhost:6062 user@your-pc-hostname
-
-# または PC 側で以下を実行してから、スマートフォンで http://localhost:6062?token=... にアクセス
-ssh -R 6062:localhost:6062 user@your-pc-hostname
-```
-
-### 方法 3: Tailscale / VPN
-
-Tailscale や WireGuard などの VPN を使用して PC と スマートフォンを同じネットワークに接続する方法もあります。
 
 ---
 
