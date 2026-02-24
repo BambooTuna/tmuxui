@@ -37,8 +37,7 @@ func parseFromBinary() []ClaudeCommand {
 		return nil
 	}
 
-	out, err := exec.Command("sh", "-c",
-		`strings "`+path+`" | grep -o 'name:"[^"]*",description:"[^"]*"'`).Output()
+	out, err := exec.Command("strings", path).Output()
 	if err != nil {
 		return nil
 	}

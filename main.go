@@ -10,6 +10,8 @@ import (
 	"os"
 )
 
+var version = "dev"
+
 func main() {
 	port := flag.Int("port", 6062, "listen port")
 	host := flag.String("host", "127.0.0.1", "bind address")
@@ -34,7 +36,7 @@ func main() {
 	addr := fmt.Sprintf("%s:%d", *host, *port)
 	srv := newServer(*token, hub, *dev)
 
-	fmt.Printf("tmuxui v0.1.0\n")
+	fmt.Printf("tmuxui %s\n", version)
 	fmt.Printf("Listening on http://%s\n", addr)
 	fmt.Printf("Access URL: http://%s?token=%s\n", addr, *token)
 	log.Fatal(http.ListenAndServe(addr, srv))

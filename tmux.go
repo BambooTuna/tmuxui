@@ -3,10 +3,17 @@ package main
 import (
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
+
+var validTarget = regexp.MustCompile(`^[a-zA-Z0-9_:.\-]+$`)
+
+func isValidTarget(s string) bool {
+	return s != "" && validTarget.MatchString(s)
+}
 
 type Pane struct {
 	Target string `json:"target"`

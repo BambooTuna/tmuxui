@@ -3,6 +3,8 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -10,7 +12,25 @@ import (
 )
 
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin: func(r *http.Request) bool {
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true
+		}
+		u, err := url.Parse(origin)
+		if err != nil {
+			return false
+		}
+		h := u.Hostname()
+		if h == "127.0.0.1" || h == "localhost" {
+			return true
+		}
+		reqHost := r.Host
+		if i := strings.LastIndex(reqHost, ":"); i >= 0 {
+			reqHost = reqHost[:i]
+		}
+		return h == reqHost
+	},
 }
 
 type WSMessage struct {
@@ -191,6 +211,9 @@ func (c *Client) readPump() {
 		}
 		switch msg.Type {
 		case "subscribe":
+			if msg.Target != "" && !isValidTarget(msg.Target) {
+				continue
+			}
 			c.mu.Lock()
 			c.target = msg.Target
 			c.mu.Unlock()
@@ -214,12 +237,18 @@ func (c *Client) readPump() {
 			c.target = ""
 			c.mu.Unlock()
 		case "resize":
-			if msg.Cols > 0 && msg.Rows > 0 && msg.Target != "" {
+			if msg.Cols > 0 && msg.Rows > 0 && isValidTarget(msg.Target) {
 				resizePane(msg.Target, msg.Cols, msg.Rows)
 			}
 		case "send_keys":
+			if !isValidTarget(msg.Target) {
+				continue
+			}
 			sendKeys(msg.Target, msg.Keys)
 		case "refresh":
+			if !isValidTarget(msg.Target) {
+				continue
+			}
 			if pc, err := capturePane(msg.Target); err == nil {
 				out, _ := json.Marshal(WSMessage{
 					Type:    "pane_content",

@@ -13,11 +13,45 @@
 ## 必要なもの
 
 - **Go 1.22 以上**
-- **tmux**（ローカルにインストール済み）
+- **tmux**（ローカルにインストール済みで、**セッションが起動中**であること）
+
+### tmux のインストール
+
+tmux がまだインストールされていない場合：
+
+```bash
+# macOS
+brew install tmux
+
+# Ubuntu/Debian
+apt install tmux
+
+# その他
+# 公式リポジトリまたはパッケージマネージャーから tmux をインストール
+```
 
 ---
 
 ## インストール・ビルド
+
+### 方法 1: go install でインストール（推奨）
+
+```bash
+go install github.com/BambooTuna/tmuxui@latest
+```
+
+その後 `tmuxui` コマンドで起動できます。
+
+### 方法 2: GitHub Releases からダウンロード
+
+```bash
+# Linux/macOS の例
+curl -L https://github.com/BambooTuna/tmuxui/releases/download/v0.1.0/tmuxui_0.1.0_darwin_amd64.tar.gz -o tmuxui.tar.gz
+tar xzf tmuxui.tar.gz
+./tmuxui
+```
+
+### 方法 3: ソースからビルド
 
 ```bash
 # リポジトリをクローン
@@ -53,6 +87,8 @@ Access URL: http://127.0.0.1:6062?token=a3f8b2c1d4e5f6a7
 
 ### ポート変更
 
+デフォルトポート (6062) が既に使用中の場合は、`--port` オプションで変更できます：
+
 ```bash
 ./tmuxui --port 3000
 ```
@@ -87,8 +123,24 @@ Access URL: http://127.0.0.1:6062?token=a3f8b2c1d4e5f6a7
 
 ### 方法 1: 同一ネットワーク内
 
-1. PC と同じ WiFi に接続
-2. 起動時に表示されたURL（例: `http://192.168.1.100:6062?token=...`）をスマートフォンのブラウザで開く
+1. PC で外部からのアクセスを許可して起動：
+
+```bash
+./tmuxui --host 0.0.0.0 --port 6062
+```
+
+2. PC のIPアドレスを確認：
+
+```bash
+# macOS/Linux
+ifconfig
+
+# または
+ip addr
+```
+
+3. PC と同じ WiFi にスマートフォンが接続
+4. 起動時に表示されたURL（例: `http://192.168.1.100:6062?token=...`）をスマートフォンのブラウザで開く
 
 ### 方法 2: SSH ポートフォワード
 
@@ -118,7 +170,23 @@ Tailscale や WireGuard などの VPN を使用して PC と スマートフォ�
 - **手動更新**: 🔄 ボタンで ペイン内容を即座に更新
 - **ペインリサイズ**: ブラウザの表示サイズに合わせてペインを自動リサイズ
 - **セッション管理**: セッションの作成・削除・名前変更
-- **スニペット機能**: よく使うコマンドをスニペットとして保存・呼び出し（`snippets/` ディレクトリにファイルを配置することで管理）
+- **スニペット機能**: よく使うコマンドをスニペットとして保存・呼び出し
+
+### スニペット機能の詳細
+
+`snippets/` ディレクトリに JSON ファイルを配置することで、Web UI からスニペットを呼び出せます。
+
+**配置場所**: `tmuxui` 実行ファイルと同じディレクトリに `snippets/` を作成
+
+```
+tmuxui
+└── snippets/
+    ├── build.json
+    ├── test.json
+    └── deploy.json
+```
+
+**ファイル形式**: JSON ファイルで定義（詳細は UI から確認可能）
 
 ---
 
@@ -137,6 +205,18 @@ Tailscale や WireGuard などの VPN を使用して PC と スマートフォ�
 | `--host` | 127.0.0.1 | バインドアドレス |
 | `--token` | (自動生成) | 認証トークン。指定しない場合は起動時にランダム生成 |
 | `--dev` | false | 開発モード。ファイルシステムから直接読み込み（ブラウザリロードで変更反映） |
+
+### 認証トークンの優先順位
+
+1. `--token` フラグで指定した値
+2. `TMUXUI_TOKEN` 環境変数で設定した値
+3. 起動時に自動生成されたランダムトークン
+
+```bash
+# 環境変数で固定トークンを設定
+export TMUXUI_TOKEN=mytoken
+./tmuxui
+```
 
 ### 複合例
 
@@ -214,7 +294,9 @@ go test ./...
 
 ## 📄 ライセンス
 
-TBD
+MIT License
+
+詳細は [LICENSE](./LICENSE) を参照してください。
 
 ---
 

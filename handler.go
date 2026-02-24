@@ -22,6 +22,10 @@ func handleSessions(w http.ResponseWriter, r *http.Request) {
 
 func handlePaneContent(w http.ResponseWriter, r *http.Request) {
 	target, _ := url.PathUnescape(r.PathValue("target"))
+	if !isValidTarget(target) {
+		http.Error(w, "invalid target", http.StatusBadRequest)
+		return
+	}
 	pc, err := capturePane(target)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -33,6 +37,10 @@ func handlePaneContent(w http.ResponseWriter, r *http.Request) {
 
 func handlePaneKeys(w http.ResponseWriter, r *http.Request) {
 	target, _ := url.PathUnescape(r.PathValue("target"))
+	if !isValidTarget(target) {
+		http.Error(w, "invalid target", http.StatusBadRequest)
+		return
+	}
 	var body struct {
 		Keys string `json:"keys"`
 	}
@@ -65,6 +73,10 @@ func handleCreateSession(w http.ResponseWriter, r *http.Request) {
 
 func handleKillSession(w http.ResponseWriter, r *http.Request) {
 	name, _ := url.PathUnescape(r.PathValue("name"))
+	if !isValidTarget(name) {
+		http.Error(w, "invalid name", http.StatusBadRequest)
+		return
+	}
 	if err := killSession(name); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -74,6 +86,10 @@ func handleKillSession(w http.ResponseWriter, r *http.Request) {
 
 func handleRenameSession(w http.ResponseWriter, r *http.Request) {
 	oldName, _ := url.PathUnescape(r.PathValue("name"))
+	if !isValidTarget(oldName) {
+		http.Error(w, "invalid name", http.StatusBadRequest)
+		return
+	}
 	var body struct {
 		Name string `json:"name"`
 	}
@@ -90,6 +106,10 @@ func handleRenameSession(w http.ResponseWriter, r *http.Request) {
 
 func handleCreateWindow(w http.ResponseWriter, r *http.Request) {
 	name, _ := url.PathUnescape(r.PathValue("name"))
+	if !isValidTarget(name) {
+		http.Error(w, "invalid name", http.StatusBadRequest)
+		return
+	}
 	var body struct {
 		Name string `json:"name"`
 	}
@@ -107,6 +127,10 @@ func handleCreateWindow(w http.ResponseWriter, r *http.Request) {
 func handleKillWindow(w http.ResponseWriter, r *http.Request) {
 	name, _ := url.PathUnescape(r.PathValue("name"))
 	index, _ := url.PathUnescape(r.PathValue("index"))
+	if !isValidTarget(name) || !isValidTarget(index) {
+		http.Error(w, "invalid name", http.StatusBadRequest)
+		return
+	}
 	if err := killWindow(name + ":" + index); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -117,6 +141,10 @@ func handleKillWindow(w http.ResponseWriter, r *http.Request) {
 func handleRenameWindow(w http.ResponseWriter, r *http.Request) {
 	name, _ := url.PathUnescape(r.PathValue("name"))
 	index, _ := url.PathUnescape(r.PathValue("index"))
+	if !isValidTarget(name) || !isValidTarget(index) {
+		http.Error(w, "invalid name", http.StatusBadRequest)
+		return
+	}
 	var body struct {
 		Name string `json:"name"`
 	}
@@ -133,6 +161,10 @@ func handleRenameWindow(w http.ResponseWriter, r *http.Request) {
 
 func handleKillPane(w http.ResponseWriter, r *http.Request) {
 	target, _ := url.PathUnescape(r.PathValue("target"))
+	if !isValidTarget(target) {
+		http.Error(w, "invalid target", http.StatusBadRequest)
+		return
+	}
 	if err := killPane(target); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -142,6 +174,10 @@ func handleKillPane(w http.ResponseWriter, r *http.Request) {
 
 func handleSplitPane(w http.ResponseWriter, r *http.Request) {
 	target, _ := url.PathUnescape(r.PathValue("target"))
+	if !isValidTarget(target) {
+		http.Error(w, "invalid target", http.StatusBadRequest)
+		return
+	}
 	var body struct {
 		Horizontal bool `json:"horizontal"`
 	}
