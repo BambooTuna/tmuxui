@@ -22,7 +22,7 @@ func runUpdate() error {
 	if !found {
 		return fmt.Errorf("no release found for this platform")
 	}
-	if latest.LessOrEqual(version) {
+	if version != "dev" && latest.LessOrEqual(version) {
 		fmt.Printf("already up to date (%s)\n", version)
 		return nil
 	}
