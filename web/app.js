@@ -14,6 +14,9 @@ const state = {
   refreshing: false,
   autoApprove: false,
   claudeCommands: null,
+  lastActivity: {},
+  seenActivity: {},
+  prevPaneContent: {},
 };
 
 const $ = id => document.getElementById(id);
@@ -50,5 +53,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
   bindEvents();
   connectWS();
+  loadPreferences();
   loadSessions();
+  setInterval(refreshActivityLabels, 1000);
 });
+
+async function loadPreferences() {
+  try {
+    const prefs = await apiFetch('/api/preferences');
+    if (prefs.theme) {
+      applyTheme(prefs.theme, false);
+    }
+    if (prefs.seenActivity && typeof prefs.seenActivity === 'object') {
+      state.seenActivity = prefs.seenActivity;
+    }
+  } catch {}
+}

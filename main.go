@@ -43,7 +43,9 @@ func main() {
 		*token = hex.EncodeToString(b)
 	}
 
-	hub := newHub()
+	globalActivity = newActivityTracker()
+	globalPreferences = newPreferences()
+	hub := newHub(globalActivity)
 	go hub.run()
 
 	addr := fmt.Sprintf("%s:%d", *host, *port)

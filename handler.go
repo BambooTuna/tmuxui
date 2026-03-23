@@ -10,14 +10,29 @@ import (
 	"strings"
 )
 
+var globalActivity *ActivityTracker
+var globalPreferences *Preferences
+
 func handleSessions(w http.ResponseWriter, r *http.Request) {
 	sessions, err := listSessions()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	lastActivity := map[string]int64{}
+	names := make([]string, 0, len(sessions))
+	for _, s := range sessions {
+		names = append(names, s.Name)
+		if ts, ok := globalActivity.Get(s.Name); ok {
+			lastActivity[s.Name] = ts
+		}
+	}
+	globalActivity.Cleanup(names)
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]any{"sessions": sessions})
+	json.NewEncoder(w).Encode(map[string]any{
+		"sessions":     sessions,
+		"lastActivity": lastActivity,
+	})
 }
 
 func handlePaneContent(w http.ResponseWriter, r *http.Request) {
@@ -81,6 +96,7 @@ func handleKillSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	globalActivity.Remove(name)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -101,6 +117,7 @@ func handleRenameSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	globalActivity.Rename(oldName, body.Name)
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -305,6 +322,21 @@ func handleUpdateSnippet(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func handleGetPreferences(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(globalPreferences.GetAll())
+}
+
+func handlePutPreferences(w http.ResponseWriter, r *http.Request) {
+	var body map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	globalPreferences.Merge(body)
 	w.WriteHeader(http.StatusNoContent)
 }
 

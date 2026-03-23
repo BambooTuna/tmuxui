@@ -192,6 +192,13 @@ async function loadSessions() {
   try {
     const data = await apiFetch('/api/sessions');
     state.sessions = data.sessions || [];
+    if (data.lastActivity) {
+      for (const [name, ts] of Object.entries(data.lastActivity)) {
+        if (!state.lastActivity[name] || state.lastActivity[name] < ts * 1000) {
+          state.lastActivity[name] = ts * 1000;
+        }
+      }
+    }
   } catch {}
   renderSessionList();
 }
@@ -222,6 +229,13 @@ function showSessionList() {
 function showWindowDetail(sessionName, windowIndex) {
   state.currentSession = sessionName;
   state.currentWindow = windowIndex;
+  // 既読: 現在の活動時刻を記録してハイライト解除
+  state.seenActivity[sessionName] = state.lastActivity[sessionName] || Date.now();
+  apiFetch('/api/preferences', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ seenActivity: state.seenActivity }),
+  }).catch(() => {});
   updateBreadcrumb();
 
   syncFilerOnSessionSwitch();
@@ -375,7 +389,14 @@ function renderSessionList() {
     return;
   }
 
-  for (const session of state.sessions) {
+  // 最終活動が新しい順にソート
+  const sorted = [...state.sessions].sort((a, b) => {
+    const ta = state.lastActivity[a.name] || 0;
+    const tb = state.lastActivity[b.name] || 0;
+    return tb - ta;
+  });
+
+  for (const session of sorted) {
     if (session.windows.length <= 1) {
       el.appendChild(createSessionCard(session));
     } else {
@@ -388,11 +409,17 @@ function createSessionCard(session) {
   const win = session.windows[0];
   const paneCount = win ? win.panes.length : 0;
   const cmd = win && win.panes.length > 0 ? win.panes[0].cmd : '';
+  const ts = state.lastActivity[session.name];
+  const elapsed = formatElapsed(ts);
+  const recent = ts && (!state.seenActivity[session.name] || ts > state.seenActivity[session.name]);
   const card = document.createElement('div');
-  card.className = 'session-card';
+  card.className = 'session-card' + (recent ? ' session-active' : '');
+  card.dataset.activitySession = session.name;
   card.innerHTML =
     `<span class="session-card-name">${esc(session.name)}</span>` +
     `<span class="session-card-meta">${esc(cmd)} · ${paneCount} panes</span>` +
+    (elapsed ? `<span class="session-activity" data-session="${esc(session.name)}">${esc(elapsed)}</span>` :
+               `<span class="session-activity" data-session="${esc(session.name)}"></span>`) +
     `<button class="btn-card-menu" aria-label="メニュー">⋯</button>`;
   card.querySelector('.btn-card-menu').addEventListener('click', e => {
     e.stopPropagation();
@@ -406,15 +433,21 @@ function createSessionCard(session) {
 
 function createSessionGroup(session) {
   const isExpanded = !!state.expandedSessions[session.name];
+  const ts = state.lastActivity[session.name];
+  const elapsed = formatElapsed(ts);
+  const recent = ts && (!state.seenActivity[session.name] || ts > state.seenActivity[session.name]);
   const group = document.createElement('div');
   group.className = 'session-group';
 
   const header = document.createElement('div');
-  header.className = 'session-group-header';
+  header.className = 'session-group-header' + (recent ? ' session-active' : '');
+  header.dataset.activitySession = session.name;
   header.innerHTML =
     `<span class="toggle">${isExpanded ? '▾' : '▸'}</span>` +
     `<span class="session-card-name" style="flex:1">${esc(session.name)} ` +
     `<span class="session-card-meta">(${session.windows.length}w)</span></span>` +
+    (elapsed ? `<span class="session-activity" data-session="${esc(session.name)}">${esc(elapsed)}</span>` :
+               `<span class="session-activity" data-session="${esc(session.name)}"></span>`) +
     `<button class="btn-card-menu" aria-label="メニュー">⋯</button>`;
 
   header.querySelector('.btn-card-menu').addEventListener('click', e => {
@@ -582,4 +615,73 @@ function showPermissionBanner(msg) {
 function hidePermissionBanner() {
   $('permission-banner').hidden = true;
   state.pendingPermission = null;
+}
+
+// ===== Activity Tracking =====
+function trackPaneActivity(target, content) {
+  const prev = state.prevPaneContent[target];
+  state.prevPaneContent[target] = content;
+  if (prev === undefined || prev === content) return;
+  const sessionName = paneTargetToSession(target);
+  if (sessionName) {
+    state.lastActivity[sessionName] = Date.now();
+  }
+}
+
+function trackSessionListActivity(newSessions) {
+  if (!state.sessions.length) return;
+  for (const ns of newSessions) {
+    const os = state.sessions.find(s => s.name === ns.name);
+    if (!os) continue;
+    const newSnap = sessionSnapshot(ns);
+    const oldSnap = sessionSnapshot(os);
+    if (newSnap !== oldSnap) {
+      state.lastActivity[ns.name] = Date.now();
+    }
+  }
+}
+
+function sessionSnapshot(session) {
+  return session.windows.map(w =>
+    w.index + ':' + w.name + ':' + w.panes.map(p => p.target + '|' + p.cmd + '|' + p.title + '|' + p.path).join(',')
+  ).join(';');
+}
+
+function paneTargetToSession(target) {
+  for (const session of state.sessions) {
+    for (const win of session.windows) {
+      for (const pane of win.panes) {
+        if (pane.target === target) return session.name;
+      }
+    }
+  }
+  return null;
+}
+
+function formatElapsed(ts) {
+  if (!ts) return null;
+  const sec = Math.floor((Date.now() - ts) / 1000);
+  if (sec < 10) return 'たった今';
+  if (sec < 60) return `${sec}秒前`;
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}分前`;
+  const hr = Math.floor(min / 60);
+  return `${hr}時間前`;
+}
+
+function refreshActivityLabels() {
+  if (!$('view-sessions').classList.contains('active')) return;
+  const labels = document.querySelectorAll('.session-activity');
+  for (const el of labels) {
+    const name = el.dataset.session;
+    const ts = state.lastActivity[name];
+    el.textContent = formatElapsed(ts) || '';
+  }
+  const cards = document.querySelectorAll('[data-activity-session]');
+  for (const card of cards) {
+    const name = card.dataset.activitySession;
+    const ts = state.lastActivity[name];
+    const recent = ts && (!state.seenActivity[name] || ts > state.seenActivity[name]);
+    card.classList.toggle('session-active', !!recent);
+  }
 }

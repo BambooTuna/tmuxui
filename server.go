@@ -32,6 +32,8 @@ func newServer(token string, hub *Hub, dev bool) http.Handler {
 	mux.HandleFunc("POST /api/panes/{target}/keys", handlePaneKeys)
 	mux.HandleFunc("DELETE /api/panes/{target}", withPaneNotify(hub, handleKillPane))
 	mux.HandleFunc("POST /api/panes/{target}/split", withPaneNotify(hub, handleSplitPane))
+	mux.HandleFunc("GET /api/preferences", handleGetPreferences)
+	mux.HandleFunc("PUT /api/preferences", handlePutPreferences)
 	mux.HandleFunc("GET /api/claude/commands", handleClaudeCommands)
 	mux.HandleFunc("GET /api/snippets", handleSnippetList)
 	mux.HandleFunc("GET /api/snippets/{name}", handleSnippetContent)

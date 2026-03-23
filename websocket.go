@@ -34,15 +34,16 @@ var upgrader = websocket.Upgrader{
 }
 
 type WSMessage struct {
-	Type     string    `json:"type"`
-	Target   string    `json:"target,omitempty"`
-	Content  string    `json:"content,omitempty"`
-	Ts       int64     `json:"ts,omitempty"`
-	Sessions []Session `json:"sessions,omitempty"`
-	Prompt   string    `json:"prompt,omitempty"`
-	Keys     string    `json:"keys,omitempty"`
-	Cols     int       `json:"cols,omitempty"`
-	Rows     int       `json:"rows,omitempty"`
+	Type         string           `json:"type"`
+	Target       string           `json:"target,omitempty"`
+	Content      string           `json:"content,omitempty"`
+	Ts           int64            `json:"ts,omitempty"`
+	Sessions     []Session        `json:"sessions,omitempty"`
+	LastActivity map[string]int64 `json:"lastActivity,omitempty"`
+	Prompt       string           `json:"prompt,omitempty"`
+	Keys         string           `json:"keys,omitempty"`
+	Cols         int              `json:"cols,omitempty"`
+	Rows         int              `json:"rows,omitempty"`
 }
 
 type Client struct {
@@ -57,12 +58,14 @@ type Hub struct {
 	mu          sync.RWMutex
 	clients     map[*Client]struct{}
 	prevContent map[string]string
+	activity    *ActivityTracker
 }
 
-func newHub() *Hub {
+func newHub(activity *ActivityTracker) *Hub {
 	return &Hub{
 		clients:     map[*Client]struct{}{},
 		prevContent: map[string]string{},
+		activity:    activity,
 	}
 }
 
@@ -131,6 +134,10 @@ func (h *Hub) pollPanes() {
 			continue
 		}
 
+		if sessionName := targetToSession(target); sessionName != "" {
+			h.activity.Touch(sessionName)
+		}
+
 		msg, _ := json.Marshal(WSMessage{
 			Type:    "pane_content",
 			Target:  target,
@@ -155,7 +162,13 @@ func (h *Hub) broadcastPaneList() {
 	if err != nil {
 		return
 	}
-	msg, _ := json.Marshal(WSMessage{Type: "pane_list", Sessions: sessions})
+	la := map[string]int64{}
+	for _, s := range sessions {
+		if ts, ok := h.activity.Get(s.Name); ok {
+			la[s.Name] = ts
+		}
+	}
+	msg, _ := json.Marshal(WSMessage{Type: "pane_list", Sessions: sessions, LastActivity: la})
 
 	h.mu.RLock()
 	clients := make([]*Client, 0, len(h.clients))
@@ -190,7 +203,13 @@ func handleWS(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	go c.writePump()
 
 	if sessions, err := listSessions(); err == nil {
-		if msg, err := json.Marshal(WSMessage{Type: "pane_list", Sessions: sessions}); err == nil {
+		la := map[string]int64{}
+		for _, s := range sessions {
+			if ts, ok := hub.activity.Get(s.Name); ok {
+				la[s.Name] = ts
+			}
+		}
+		if msg, err := json.Marshal(WSMessage{Type: "pane_list", Sessions: sessions, LastActivity: la}); err == nil {
 			c.send <- msg
 		}
 	}
@@ -272,4 +291,11 @@ func (c *Client) writePump() {
 			break
 		}
 	}
+}
+
+func targetToSession(target string) string {
+	if i := strings.Index(target, ":"); i >= 0 {
+		return target[:i]
+	}
+	return ""
 }

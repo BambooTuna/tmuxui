@@ -207,7 +207,7 @@ function renderFilerList(entries, dirPath) {
   for (const entry of entries) {
     const row = document.createElement('div');
     row.className = 'filer-entry';
-    const icon = entry.isDir ? '&#128194;' : filerFileIcon(entry.name);
+    const icon = entry.isDir ? '&#9656;' : filerFileIcon(entry.name);
     const nameClass = entry.isDir ? 'filer-entry-name dir' : 'filer-entry-name';
     const sizeText = entry.isDir ? '' : filerFormatSize(entry.size);
     const gitBadge = filerGitBadge(entry.gitStatus);
@@ -266,25 +266,26 @@ function filerMediaType(filename) {
 
 function filerFileIcon(filename) {
   const ext = (filename.match(/\.[^.]+$/) || [''])[0].toLowerCase();
-  const map = {
-    '.pdf': '&#128220;',
-    '.png': '&#127912;', '.jpg': '&#127912;', '.jpeg': '&#127912;',
-    '.gif': '&#127912;', '.webp': '&#127912;', '.bmp': '&#127912;',
-    '.svg': '&#127912;', '.ico': '&#127912;',
-    '.js': '&#128296;', '.ts': '&#128296;', '.go': '&#128296;',
-    '.py': '&#128296;', '.rb': '&#128296;', '.rs': '&#128296;',
-    '.c': '&#128296;', '.cpp': '&#128296;', '.h': '&#128296;',
-    '.java': '&#128296;', '.kt': '&#128296;', '.swift': '&#128296;',
-    '.sh': '&#128296;', '.bash': '&#128296;', '.zsh': '&#128296;',
-    '.html': '&#127760;', '.css': '&#127760;', '.htm': '&#127760;',
-    '.json': '&#128203;', '.yaml': '&#128203;', '.yml': '&#128203;',
-    '.toml': '&#128203;', '.xml': '&#128203;', '.ini': '&#128203;',
-    '.md': '&#128221;', '.txt': '&#128221;', '.log': '&#128221;',
-    '.zip': '&#128230;', '.tar': '&#128230;', '.gz': '&#128230;',
-    '.mp3': '&#127925;', '.wav': '&#127925;', '.m4a': '&#127925;',
-    '.mp4': '&#127916;', '.mov': '&#127916;', '.avi': '&#127916;',
+  // 色付きドット: ファイル種別ごとに色分け
+  const colorMap = {
+    '.js': '#f7df1e', '.ts': '#3178c6', '.jsx': '#61dafb', '.tsx': '#3178c6',
+    '.go': '#00add8', '.py': '#3776ab', '.rb': '#cc342d', '.rs': '#dea584',
+    '.c': '#555', '.cpp': '#f34b7d', '.h': '#555',
+    '.java': '#b07219', '.kt': '#a97bff', '.swift': '#f05138',
+    '.sh': '#89e051', '.bash': '#89e051', '.zsh': '#89e051',
+    '.html': '#e34c26', '.css': '#563d7c', '.htm': '#e34c26', '.scss': '#c6538c',
+    '.json': '#a1a1a1', '.yaml': '#cb171e', '.yml': '#cb171e',
+    '.toml': '#9c4221', '.xml': '#0060ac', '.ini': '#a1a1a1',
+    '.md': '#083fa1', '.txt': '#a1a1a1', '.log': '#a1a1a1',
+    '.png': '#a473b6', '.jpg': '#a473b6', '.jpeg': '#a473b6',
+    '.gif': '#a473b6', '.webp': '#a473b6', '.svg': '#ffb13b',
+    '.zip': '#e6b800', '.tar': '#e6b800', '.gz': '#e6b800',
+    '.mp3': '#fb5c74', '.wav': '#fb5c74', '.m4a': '#fb5c74',
+    '.mp4': '#fb5c74', '.mov': '#fb5c74',
+    '.pdf': '#ec1c24',
   };
-  return map[ext] || '&#128196;';
+  const color = colorMap[ext] || '#888';
+  return `<span style="color:${color}">&#9679;</span>`;
 }
 
 function filerFormatSize(bytes) {

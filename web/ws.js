@@ -51,6 +51,7 @@ function wsSend(msg) {
 function handleWSMessage(msg) {
   switch (msg.type) {
     case 'pane_content':
+      trackPaneActivity(msg.target, msg.content || '');
       if (msg.target === state.currentPane) {
         renderPaneContent(msg.content || '');
       }
@@ -58,6 +59,14 @@ function handleWSMessage(msg) {
 
     case 'pane_list':
       if (Array.isArray(msg.sessions)) {
+        trackSessionListActivity(msg.sessions);
+        if (msg.lastActivity) {
+          for (const [name, ts] of Object.entries(msg.lastActivity)) {
+            if (!state.lastActivity[name] || state.lastActivity[name] < ts * 1000) {
+              state.lastActivity[name] = ts * 1000;
+            }
+          }
+        }
         state.sessions = msg.sessions;
         if ($('view-sessions').classList.contains('active')) {
           renderSessionList();

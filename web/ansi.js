@@ -3,20 +3,28 @@
 
 (function () {
   // 基本8色 + 明るい8色 (fg: 30-37, 90-97 / bg: 40-47, 100-107)
-  // 注: index 0 の黒はダークテーマ(#1a1a1a)で見えるよう #555 にしている
-  const BASIC_COLORS = [
+  const DARK_COLORS = [
     '#555555', '#cc0000', '#4e9a06', '#c4a000',
     '#3465a4', '#75507b', '#06989a', '#d3d7cf',
     '#555753', '#ef2929', '#8ae234', '#fce94f',
     '#729fcf', '#ad7fa8', '#34e2e2', '#eeeeec',
   ];
+  const PASTEL_COLORS = [
+    '#6e6e6e', '#a82020', '#2e7d32', '#8a6d00',
+    '#1565c0', '#7b1fa2', '#00838f', '#4a4a4a',
+    '#808080', '#c62828', '#388e3c', '#f9a825',
+    '#1976d2', '#8e24aa', '#00acc1', '#333333',
+  ];
 
-  // 256色パレット生成
-  const PALETTE_256 = (() => {
+  function getBasicColors() {
+    return document.documentElement.getAttribute('data-theme') === 'pastel' ? PASTEL_COLORS : DARK_COLORS;
+  }
+
+  // 256色パレット生成（基本16色はテーマ依存）
+  function buildPalette256() {
+    const basic = getBasicColors();
     const p = new Array(256);
-    // 0-15: 基本色
-    for (let i = 0; i < 16; i++) p[i] = BASIC_COLORS[i];
-    // 16-231: 6x6x6 カラーキューブ
+    for (let i = 0; i < 16; i++) p[i] = basic[i];
     for (let i = 0; i < 216; i++) {
       const r = Math.floor(i / 36);
       const g = Math.floor((i % 36) / 6);
@@ -24,13 +32,12 @@
       const toV = v => v === 0 ? 0 : v * 40 + 55;
       p[i + 16] = `#${toHex(toV(r))}${toHex(toV(g))}${toHex(toV(b))}`;
     }
-    // 232-255: グレースケール
     for (let i = 0; i < 24; i++) {
       const v = i * 10 + 8;
       p[i + 232] = `#${toHex(v)}${toHex(v)}${toHex(v)}`;
     }
     return p;
-  })();
+  }
 
   function toHex(n) {
     return n.toString(16).padStart(2, '0');
@@ -74,7 +81,7 @@
       // 256色
       const n = params[idx + 2];
       if (n >= 0 && n <= 255) {
-        return { color: PALETTE_256[n], skip: 2 };
+        return { color: buildPalette256()[n], skip: 2 };
       }
       return { color: null, skip: 2 };
     } else if (mode === 2) {
@@ -103,22 +110,22 @@
       else if (p === 3) { state.italic = true; }
       else if (p === 4) { state.underline = true; }
       else if (p === 9) { state.strike = true; }
-      else if (p >= 30 && p <= 37) { state.fg = BASIC_COLORS[p - 30]; }
+      else if (p >= 30 && p <= 37) { state.fg = getBasicColors()[p - 30]; }
       else if (p === 38) {
         const { color, skip } = readColor(params, i);
         if (color) state.fg = color;
         i += skip;
       }
       else if (p === 39) { state.fg = null; }
-      else if (p >= 40 && p <= 47) { state.bg = BASIC_COLORS[p - 40]; }
+      else if (p >= 40 && p <= 47) { state.bg = getBasicColors()[p - 40]; }
       else if (p === 48) {
         const { color, skip } = readColor(params, i);
         if (color) state.bg = color;
         i += skip;
       }
       else if (p === 49) { state.bg = null; }
-      else if (p >= 90 && p <= 97) { state.fg = BASIC_COLORS[p - 90 + 8]; }
-      else if (p >= 100 && p <= 107) { state.bg = BASIC_COLORS[p - 100 + 8]; }
+      else if (p >= 90 && p <= 97) { state.fg = getBasicColors()[p - 90 + 8]; }
+      else if (p >= 100 && p <= 107) { state.bg = getBasicColors()[p - 100 + 8]; }
       i++;
     }
   }
