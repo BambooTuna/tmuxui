@@ -158,149 +158,41 @@ sudo mv tmuxui /usr/local/bin/
 
 ---
 
-## 🚀 起動方法
+## 📲 スマートフォンからアクセスする
 
-### 基本的な起動
-
-```bash
-./tmuxui
-```
-
-起動時に以下が表示されます：
-
-```
-tmuxui v0.1.0
-Listening on http://127.0.0.1:6062
-Access URL: http://127.0.0.1:6062?token=a3f8b2c1d4e5f6a7
-```
-
-このURLをスマートフォンにコピーしてブラウザで開きます。
-
-### ポート変更
-
-デフォルトポート (6062) が既に使用中の場合は、`--port` オプションで変更できます：
-
-```bash
-./tmuxui --port 3000
-```
-
-### 外部からのアクセス（ポートフォワード用）
-
-```bash
-./tmuxui --host 0.0.0.0 --port 6062
-```
-
-⚠️ **セキュリティ上の注意**: 外部公開時は必ず `--token` で認証トークンを指定するか、ファイアウォール・SSH ポートフォワード経由でアクセスしてください。
-
-### 認証トークンの指定
-
-```bash
-./tmuxui --token mytoken
-```
-
-デフォルトは起動時にランダムに生成されます。
-
-### 開発モード
-
-```bash
-./tmuxui --dev
-```
-
-このモードでは HTML/CSS/JavaScript をファイルシステムから直接読み込みます。開発時の変更がブラウザリロードで即座に反映されます（Go の再ビルド不要）。
-
----
-
-## 📲 外出先からスマートフォンでアクセスする
-
-Tailscale（VPN）と Termius（SSHクライアント）を使って、外出先の iPhone から MacBook 上の tmuxui にアクセスする手順です。
+Tailscale Serve を使い、HTTPS 経由で安全にアクセスします。SSH クライアントやポートフォワードは不要です。
 
 ### 事前準備
 
-#### Tailscale のセットアップ
-
-1. **MacBook**: [tailscale.com/download](https://tailscale.com/download/mac) からインストール（または `brew install --cask tailscale`）
+1. **MacBook**: `brew install --cask tailscale` でインストール
 2. **iPhone**: App Store から [Tailscale](https://apps.apple.com/app/tailscale/id1470499037) をインストール
-3. 両方のデバイスで同じアカウント（Google/GitHub/Apple等）でログイン
-4. 接続確認:
-
-```bash
-# MacのTailscale IPを確認
-tailscale ip
-# → 100.x.y.z
-```
+3. 両方のデバイスで同じアカウントでログイン
 
 > 無料プランで十分です（個人利用: 3ユーザー・100デバイスまで）
 
-<!-- TODO: Tailscale設定画面のスクリーンショット -->
-<!-- ![Tailscale接続確認](docs/images/tailscale-status.png) -->
-
-#### Termius のセットアップ（iPhone）
-
-1. App Store から [Termius](https://apps.apple.com/app/termius-modern-ssh-client/id549039908) をインストール（無料版でOK）
-
-2. **SSH接続を追加**: 「+」→「New Host」
-
-| 項目 | 値 |
-|------|-----|
-| Hostname | MacBookのTailscale IP（例: `100.x.y.z`）|
-| Port | `22` |
-| Username | Macのユーザー名 |
-| Password / Key | 任意の認証方法 |
-
-3. **ポートフォワードを追加**: 下部メニュー「Port Forwarding」→「New Rule」
-
-| 項目 | 値 |
-|------|-----|
-| Type | Local |
-| Local port | `6062` |
-| Destination host | `localhost` |
-| Destination port | `6062` |
-| SSH Host | 上で登録したMacBook |
-
-<!-- TODO: Termius設定画面のスクリーンショット -->
-<!-- ![Termiusポートフォワード設定](docs/images/termius-portforward.png) -->
-
-### アクセス手順
-
-1. MacBookで tmuxui を起動:
+### 起動（コピペで完了）
 
 ```bash
-# トークンを固定すると毎回URL入力が楽
-export TMUXUI_TOKEN=mytoken
-tmuxui
+# tmuxui 起動 + Tailscale Serve で HTTPS 公開
+tmuxui & tailscale serve --bg 6062
+
+# アクセス URL を表示
+echo "https://$(tailscale status --json | jq -r '.Self.DNSName' | sed 's/\.$//')"
 ```
 
-> `--host 0.0.0.0` は不要です。SSHポートフォワード経由なので localhost のままアクセスできます。
+表示された URL を iPhone の Safari で開けばアクセスできます。
 
-2. iPhone の Termius でポートフォワードルールの ▶ をタップして接続
+> **⚠️ 「Serve is not enabled on your tailnet」と表示された場合**: Tailscale Serve が tailnet で有効になっていません。エラーメッセージに表示される URL（`https://login.tailscale.com/f/serve?node=...`）をブラウザで開いて、Serve 機能を有効にしてから再度コマンドを実行してください。
 
-3. Safari で以下を開く:
+> Tailscale Serve は Tailnet 内の認証済みデバイスのみアクセス可能なため、token なしでも安全です。共有 Tailnet で他ユーザーからのアクセスも制限したい場合は `tmuxui --token mytoken` で起動してください。
 
-```
-http://localhost:6062?token=mytoken
-```
+> **Tips**: Safari で URL をホーム画面に追加すると、次回からワンタップでアクセスできます。
 
-> **Tips**: SafariでURLをホーム画面に追加すると、次回からワンタップでアクセスできます。
-
-> **注意**: iOSの制限により、Termiusをバックグラウンドに移すと接続が切れることがあります。アクセス中はTermiusをアクティブに保ってください。
-
-### その他の方法
-
-#### 同一ネットワーク内（家庭内WiFiなど）
-
-PC とスマートフォンが同じWiFiに接続されている場合は、Tailscaleなしで直接アクセスできます：
+### 停止
 
 ```bash
-./tmuxui --host 0.0.0.0 --port 6062
-```
-
-PC のIPアドレス（`ifconfig` で確認）を使って `http://192.168.1.xxx:6062?token=...` にアクセスしてください。
-
-#### Termius以外のSSHクライアントを使う場合
-
-```bash
-# ローカルポートフォワード（スマートフォン側で実行）
-ssh -L 6062:localhost:6062 user@your-mac-tailscale-ip
+tailscale serve --bg off
+# tmuxui は Ctrl+C で停止
 ```
 
 ---
@@ -319,19 +211,14 @@ ssh -L 6062:localhost:6062 user@your-mac-tailscale-ip
 
 ### スニペット機能の詳細
 
-`snippets/` ディレクトリに JSON ファイルを配置することで、Web UI からスニペットを呼び出せます。
-
-**配置場所**: `tmuxui` 実行ファイルと同じディレクトリに `snippets/` を作成
+`~/.config/tmuxui/snippets/` に JSON ファイルを配置することで、Web UI からスニペットを呼び出せます。
 
 ```
-tmuxui
-└── snippets/
-    ├── build.json
-    ├── test.json
-    └── deploy.json
+~/.config/tmuxui/snippets/
+├── build.json
+├── test.json
+└── deploy.json
 ```
-
-**ファイル形式**: JSON ファイルで定義（詳細は UI から確認可能）
 
 ---
 
@@ -348,41 +235,14 @@ tmuxui
 |-----------|-----------|------|
 | `--port` | 6062 | リッスンポート |
 | `--host` | 127.0.0.1 | バインドアドレス |
-| `--token` | (自動生成) | 認証トークン。指定しない場合は起動時にランダム生成 |
-| `--dev` | false | 開発モード。ファイルシステムから直接読み込み（ブラウザリロードで変更反映） |
-
-### 認証トークンの優先順位
-
-1. `--token` フラグで指定した値
-2. `TMUXUI_TOKEN` 環境変数で設定した値
-3. 起動時に自動生成されたランダムトークン
-
-```bash
-# 環境変数で固定トークンを設定
-export TMUXUI_TOKEN=mytoken
-./tmuxui
-```
-
-### 複合例
-
-```bash
-# ポート3000、外部アクセス許可、トークン固定
-./tmuxui --host 0.0.0.0 --port 3000 --token mytoken
-
-# 開発モード、ポート3000
-./tmuxui --port 3000 --dev
-```
-
----
+| `--token` | (自動生成) | 認証トークン（`TMUXUI_TOKEN` 環境変数でも設定可） |
+| `--dev` | false | 開発モード（HTML/CSS/JS をファイルシステムから直接読み込み） |
 
 ## 🔒 セキュリティ
 
-- **認証**: 起動時に生成されたランダムトークンを使用。全 HTTP リクエストに `?token=xxx` が必須
-- **localhost バインド**: デフォルトは `127.0.0.1` のみでリッスン（外部からアクセス不可）
-- **権限許可**: スマートフォンからの権限許可には確認ダイアログが必須
-- **セッションタイムアウト**: 10 分無操作でセッション終了
-
-外部公開時は SSH ポートフォワードや VPN 経由での使用を推奨します。
+- **認証**: 全リクエストに `?token=xxx` が必須（起動時にランダム生成 or 固定指定）
+- **localhost バインド**: デフォルトは `127.0.0.1` のみ（外部からアクセス不可）
+- **外部アクセス**: Tailscale Serve 経由で HTTPS + Tailnet 認証
 
 ---
 

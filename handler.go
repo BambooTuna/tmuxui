@@ -189,8 +189,13 @@ func handleSplitPane(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func snippetsDir() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config", "tmuxui", "snippets")
+}
+
 func handleSnippetList(w http.ResponseWriter, r *http.Request) {
-	entries, err := os.ReadDir("snippets")
+	entries, err := os.ReadDir(snippetsDir())
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(map[string]any{"snippets": []any{}})
@@ -222,7 +227,7 @@ func handleSnippetContent(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid name", http.StatusBadRequest)
 		return
 	}
-	data, err := os.ReadFile(filepath.Join("snippets", name))
+	data, err := os.ReadFile(filepath.Join(snippetsDir(), name))
 	if err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
@@ -244,12 +249,12 @@ func handleCreateSnippet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid name", http.StatusBadRequest)
 		return
 	}
-	path := filepath.Join("snippets", body.Name)
+	path := filepath.Join(snippetsDir(), body.Name)
 	if _, err := os.Stat(path); err == nil {
 		http.Error(w, "already exists", http.StatusConflict)
 		return
 	}
-	if err := os.MkdirAll("snippets", 0755); err != nil {
+	if err := os.MkdirAll(snippetsDir(), 0755); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -266,7 +271,7 @@ func handleUpdateSnippet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid name", http.StatusBadRequest)
 		return
 	}
-	oldPath := filepath.Join("snippets", name)
+	oldPath := filepath.Join(snippetsDir(), name)
 	if _, err := os.Stat(oldPath); err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
@@ -284,7 +289,7 @@ func handleUpdateSnippet(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid name", http.StatusBadRequest)
 			return
 		}
-		newPath := filepath.Join("snippets", body.Name)
+		newPath := filepath.Join(snippetsDir(), body.Name)
 		if _, err := os.Stat(newPath); err == nil {
 			http.Error(w, "already exists", http.StatusConflict)
 			return
@@ -295,7 +300,7 @@ func handleUpdateSnippet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Name != "" && body.Name != name {
-		if err := os.Rename(oldPath, filepath.Join("snippets", body.Name)); err != nil {
+		if err := os.Rename(oldPath, filepath.Join(snippetsDir(), body.Name)); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -315,7 +320,7 @@ func handleDeleteSnippet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid name", http.StatusBadRequest)
 		return
 	}
-	if err := os.Remove(filepath.Join("snippets", name)); err != nil {
+	if err := os.Remove(filepath.Join(snippetsDir(), name)); err != nil {
 		http.Error(w, "not found", http.StatusNotFound)
 		return
 	}
