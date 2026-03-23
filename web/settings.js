@@ -41,7 +41,7 @@ function updateThemeButtons() {
 }
 
 function showSettings() {
-  window._settingsReturnView = document.getElementById('view-detail').classList.contains('active') ? 'detail' : 'sessions';
+  state.settingsReturnView = document.getElementById('view-detail').classList.contains('active') ? 'detail' : 'sessions';
   document.getElementById('view-detail').classList.remove('active');
   document.getElementById('view-sessions').classList.remove('active');
   document.getElementById('view-settings').classList.add('active');
@@ -51,7 +51,7 @@ function showSettings() {
 // NOTE: state は app.js で定義されるグローバル変数（DOMContentLoaded 後に参照）
 function hideSettings() {
   document.getElementById('view-settings').classList.remove('active');
-  var returnTo = window._settingsReturnView || 'sessions';
+  var returnTo = (typeof state !== 'undefined' && state.settingsReturnView) || 'sessions';
   document.getElementById(returnTo === 'detail' ? 'view-detail' : 'view-sessions').classList.add('active');
 }
 

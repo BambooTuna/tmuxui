@@ -51,7 +51,7 @@ function wsSend(msg) {
 function handleWSMessage(msg) {
   switch (msg.type) {
     case 'pane_content':
-      trackPaneActivity(msg.target, msg.content || '');
+      trackPaneActivity(msg.target);
       if (msg.target === state.currentPane) {
         renderPaneContent(msg.content || '');
       }

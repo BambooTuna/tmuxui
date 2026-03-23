@@ -19,13 +19,10 @@ func handleSessions(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	lastActivity := map[string]int64{}
+	lastActivity := globalActivity.BuildMap(sessions)
 	names := make([]string, 0, len(sessions))
 	for _, s := range sessions {
 		names = append(names, s.Name)
-		if ts, ok := globalActivity.Get(s.Name); ok {
-			lastActivity[s.Name] = ts
-		}
 	}
 	globalActivity.Cleanup(names)
 	w.Header().Set("Content-Type", "application/json")

@@ -16,12 +16,22 @@
     '#1976d2', '#8e24aa', '#00acc1', '#333333',
   ];
 
+  let _cachedTheme = null;
+  let _cachedBasic = null;
+  let _cachedPalette = null;
+
   function getBasicColors() {
-    return document.documentElement.getAttribute('data-theme') === 'pastel' ? PASTEL_COLORS : DARK_COLORS;
+    const theme = document.documentElement.getAttribute('data-theme') || '';
+    if (theme !== _cachedTheme) {
+      _cachedTheme = theme;
+      _cachedBasic = theme === 'pastel' ? PASTEL_COLORS : DARK_COLORS;
+      _cachedPalette = null;
+    }
+    return _cachedBasic;
   }
 
-  // 256色パレット生成（基本16色はテーマ依存）
   function buildPalette256() {
+    if (_cachedPalette) return _cachedPalette;
     const basic = getBasicColors();
     const p = new Array(256);
     for (let i = 0; i < 16; i++) p[i] = basic[i];
@@ -36,6 +46,7 @@
       const v = i * 10 + 8;
       p[i + 232] = `#${toHex(v)}${toHex(v)}${toHex(v)}`;
     }
+    _cachedPalette = p;
     return p;
   }
 

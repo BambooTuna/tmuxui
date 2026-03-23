@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 )
 
 type Preferences struct {
@@ -60,24 +61,21 @@ func (p *Preferences) Merge(incoming map[string]any) {
 
 func (p *Preferences) saveLoop() {
 	for range p.saveCh {
-		// debounce と同じく少し待ってから保存
+		time.Sleep(1 * time.Second)
 		p.save()
 	}
 }
 
 func (p *Preferences) save() {
-	p.mu.RLock()
+	p.mu.Lock()
 	if !p.dirty {
-		p.mu.RUnlock()
+		p.mu.Unlock()
 		return
 	}
 	cp := make(map[string]any, len(p.data))
 	for k, v := range p.data {
 		cp[k] = v
 	}
-	p.mu.RUnlock()
-
-	p.mu.Lock()
 	p.dirty = false
 	p.mu.Unlock()
 

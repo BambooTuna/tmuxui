@@ -409,11 +409,9 @@ function createSessionCard(session) {
   const win = session.windows[0];
   const paneCount = win ? win.panes.length : 0;
   const cmd = win && win.panes.length > 0 ? win.panes[0].cmd : '';
-  const ts = state.lastActivity[session.name];
-  const elapsed = formatElapsed(ts);
-  const recent = ts && (!state.seenActivity[session.name] || ts > state.seenActivity[session.name]);
+  const elapsed = formatElapsed(state.lastActivity[session.name]);
   const card = document.createElement('div');
-  card.className = 'session-card' + (recent ? ' session-active' : '');
+  card.className = 'session-card' + (isUnseenActivity(session.name) ? ' session-active' : '');
   card.dataset.activitySession = session.name;
   card.innerHTML =
     `<span class="session-card-name">${esc(session.name)}</span>` +
@@ -433,14 +431,12 @@ function createSessionCard(session) {
 
 function createSessionGroup(session) {
   const isExpanded = !!state.expandedSessions[session.name];
-  const ts = state.lastActivity[session.name];
-  const elapsed = formatElapsed(ts);
-  const recent = ts && (!state.seenActivity[session.name] || ts > state.seenActivity[session.name]);
+  const elapsed = formatElapsed(state.lastActivity[session.name]);
   const group = document.createElement('div');
   group.className = 'session-group';
 
   const header = document.createElement('div');
-  header.className = 'session-group-header' + (recent ? ' session-active' : '');
+  header.className = 'session-group-header' + (isUnseenActivity(session.name) ? ' session-active' : '');
   header.dataset.activitySession = session.name;
   header.innerHTML =
     `<span class="toggle">${isExpanded ? '▾' : '▸'}</span>` +
@@ -618,13 +614,22 @@ function hidePermissionBanner() {
 }
 
 // ===== Activity Tracking =====
-function trackPaneActivity(target, content) {
-  const prev = state.prevPaneContent[target];
-  state.prevPaneContent[target] = content;
-  if (prev === undefined || prev === content) return;
-  const sessionName = paneTargetToSession(target);
-  if (sessionName) {
-    state.lastActivity[sessionName] = Date.now();
+function isUnseenActivity(name) {
+  const ts = state.lastActivity[name];
+  return ts && (!state.seenActivity[name] || ts > state.seenActivity[name]);
+}
+
+function trackPaneActivity(target) {
+  // サーバーが差分検知済みのため、pane_content 受信 = 変化があった
+  for (const session of state.sessions) {
+    for (const win of session.windows) {
+      for (const pane of win.panes) {
+        if (pane.target === target) {
+          state.lastActivity[session.name] = Date.now();
+          return;
+        }
+      }
+    }
   }
 }
 
@@ -633,9 +638,7 @@ function trackSessionListActivity(newSessions) {
   for (const ns of newSessions) {
     const os = state.sessions.find(s => s.name === ns.name);
     if (!os) continue;
-    const newSnap = sessionSnapshot(ns);
-    const oldSnap = sessionSnapshot(os);
-    if (newSnap !== oldSnap) {
+    if (sessionSnapshot(ns) !== sessionSnapshot(os)) {
       state.lastActivity[ns.name] = Date.now();
     }
   }
@@ -645,17 +648,6 @@ function sessionSnapshot(session) {
   return session.windows.map(w =>
     w.index + ':' + w.name + ':' + w.panes.map(p => p.target + '|' + p.cmd + '|' + p.title + '|' + p.path).join(',')
   ).join(';');
-}
-
-function paneTargetToSession(target) {
-  for (const session of state.sessions) {
-    for (const win of session.windows) {
-      for (const pane of win.panes) {
-        if (pane.target === target) return session.name;
-      }
-    }
-  }
-  return null;
 }
 
 function formatElapsed(ts) {
@@ -680,8 +672,6 @@ function refreshActivityLabels() {
   const cards = document.querySelectorAll('[data-activity-session]');
   for (const card of cards) {
     const name = card.dataset.activitySession;
-    const ts = state.lastActivity[name];
-    const recent = ts && (!state.seenActivity[name] || ts > state.seenActivity[name]);
-    card.classList.toggle('session-active', !!recent);
+    card.classList.toggle('session-active', isUnseenActivity(name));
   }
 }

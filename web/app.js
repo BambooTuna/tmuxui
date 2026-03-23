@@ -16,7 +16,6 @@ const state = {
   claudeCommands: null,
   lastActivity: {},
   seenActivity: {},
-  prevPaneContent: {},
 };
 
 const $ = id => document.getElementById(id);

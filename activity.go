@@ -65,6 +65,18 @@ func (at *ActivityTracker) Get(sessionName string) (int64, bool) {
 	return t.Unix(), true
 }
 
+func (at *ActivityTracker) BuildMap(sessions []Session) map[string]int64 {
+	at.mu.RLock()
+	defer at.mu.RUnlock()
+	m := map[string]int64{}
+	for _, s := range sessions {
+		if t, ok := at.activity[s.Name]; ok {
+			m[s.Name] = t.Unix()
+		}
+	}
+	return m
+}
+
 func (at *ActivityTracker) Remove(sessionName string) {
 	at.mu.Lock()
 	delete(at.activity, sessionName)
@@ -123,18 +135,15 @@ func (at *ActivityTracker) saveLoop() {
 }
 
 func (at *ActivityTracker) save() {
-	at.mu.RLock()
+	at.mu.Lock()
 	if !at.dirty {
-		at.mu.RUnlock()
+		at.mu.Unlock()
 		return
 	}
 	raw := make(map[string]string, len(at.activity))
 	for k, v := range at.activity {
 		raw[k] = v.Format(time.RFC3339)
 	}
-	at.mu.RUnlock()
-
-	at.mu.Lock()
 	at.dirty = false
 	at.mu.Unlock()
 

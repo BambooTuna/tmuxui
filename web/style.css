@@ -274,11 +274,6 @@ button, input, textarea {
   background: color-mix(in srgb, var(--accent) 8%, var(--bg2));
 }
 
-.session-group-header.session-active {
-  border-left: 3px solid var(--accent);
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg2));
-}
-
 .empty-state {
   text-align: center;
   color: var(--muted);

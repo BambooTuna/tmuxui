@@ -162,12 +162,7 @@ func (h *Hub) broadcastPaneList() {
 	if err != nil {
 		return
 	}
-	la := map[string]int64{}
-	for _, s := range sessions {
-		if ts, ok := h.activity.Get(s.Name); ok {
-			la[s.Name] = ts
-		}
-	}
+	la := h.activity.BuildMap(sessions)
 	msg, _ := json.Marshal(WSMessage{Type: "pane_list", Sessions: sessions, LastActivity: la})
 
 	h.mu.RLock()
@@ -203,12 +198,7 @@ func handleWS(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	go c.writePump()
 
 	if sessions, err := listSessions(); err == nil {
-		la := map[string]int64{}
-		for _, s := range sessions {
-			if ts, ok := hub.activity.Get(s.Name); ok {
-				la[s.Name] = ts
-			}
-		}
+		la := hub.activity.BuildMap(sessions)
 		if msg, err := json.Marshal(WSMessage{Type: "pane_list", Sessions: sessions, LastActivity: la}); err == nil {
 			c.send <- msg
 		}
