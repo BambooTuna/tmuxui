@@ -265,6 +265,8 @@ button, input, textarea {
   overflow-x: auto;
   color: var(--text);
   background: var(--bg);
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 /* ===== Input Area ===== */
@@ -523,6 +525,7 @@ button, input, textarea {
   flex-direction: column;
   padding-top: var(--safe-top);
   padding-right: var(--safe-right);
+  padding-bottom: var(--safe-bottom);
 }
 
 .drawer.open {
@@ -911,7 +914,7 @@ button, input, textarea {
   border-radius: 8px;
   color: var(--text);
   font-family: var(--mono);
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.4;
   resize: vertical;
 }
@@ -1004,4 +1007,201 @@ button, input, textarea {
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
+}
+
+/* ===== Filer ===== */
+.filer-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.filer-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  padding-left:  calc(12px + var(--safe-left));
+  padding-right: calc(12px + var(--safe-right));
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.btn-filer-nav {
+  min-width: 44px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--accent);
+  font-size: 16px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.btn-filer-nav:disabled { color: var(--muted); opacity: 0.4; cursor: default; }
+.btn-filer-nav:active:not(:disabled) { background: rgba(255,255,255,0.08); }
+
+.filer-path-text {
+  flex: 1;
+  font-size: 12px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--mono);
+}
+
+.filer-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 12px;
+  padding-left:  calc(12px + var(--safe-left));
+  padding-right: calc(12px + var(--safe-right));
+  padding-bottom: calc(12px + var(--safe-bottom));
+}
+
+.filer-entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 14px;
+  color: var(--text);
+}
+
+.filer-entry:active { background: var(--bg3); }
+
+.filer-entry-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+  width: 24px;
+  text-align: center;
+}
+
+.filer-entry-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.filer-entry-name.dir { color: var(--accent); font-weight: 600; }
+
+.filer-entry-size {
+  font-size: 11px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+
+.filer-file-content {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre;
+  word-break: normal;
+  overflow-x: auto;
+  color: var(--text);
+  padding: 12px;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.filer-binary-msg {
+  text-align: center;
+  color: var(--muted);
+  padding: 48px 16px;
+  font-size: 14px;
+}
+
+.btn-filer { font-size: 18px; }
+.btn-filer.active { color: var(--accent); }
+
+/* ===== Filer Git Badge ===== */
+.filer-git-badge {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+  font-family: var(--mono);
+  background: var(--bg3);
+}
+
+.filer-git-warn { color: var(--warn); }
+.filer-git-error { color: var(--error); }
+.filer-git-success { color: var(--success); }
+.filer-git-accent { color: var(--accent); }
+.filer-git-muted { color: var(--muted); }
+
+/* ===== Filer Media Preview ===== */
+.filer-image-preview {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+  display: block;
+  margin: 12px auto;
+}
+
+.filer-pdf-fallback {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 48px 16px;
+}
+
+.filer-pdf-icon { font-size: 48px; }
+
+.filer-pdf-name {
+  color: var(--muted);
+  font-size: 14px;
+  word-break: break-all;
+  text-align: center;
+}
+
+.filer-pdf-open {
+  display: inline-block;
+  padding: 10px 24px;
+  background: var(--accent);
+  color: #000;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 15px;
+}
+
+.filer-pdf-open:active { opacity: 0.7; }
+
+/* ===== Filer Video/Audio ===== */
+.filer-video-preview {
+  width: 100%;
+  max-height: 70vh;
+  border-radius: 8px;
+  display: block;
+  margin: 12px auto;
+  background: #000;
+}
+
+.filer-audio-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 48px 16px;
+}
+
+.filer-audio-icon { font-size: 48px; }
+
+.filer-audio-wrap audio {
+  width: 100%;
+  max-width: 400px;
 }

@@ -38,6 +38,9 @@ func newServer(token string, hub *Hub, dev bool) http.Handler {
 	mux.HandleFunc("POST /api/snippets", handleCreateSnippet)
 	mux.HandleFunc("PUT /api/snippets/{name}", handleUpdateSnippet)
 	mux.HandleFunc("DELETE /api/snippets/{name}", handleDeleteSnippet)
+	mux.HandleFunc("GET /api/filer/list", handleFilerList)
+	mux.HandleFunc("GET /api/filer/read", handleFilerRead)
+	mux.HandleFunc("GET /api/filer/raw", handleFilerRaw)
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		handleWS(hub, w, r)
 	})

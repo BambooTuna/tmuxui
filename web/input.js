@@ -117,6 +117,10 @@ function bindEvents() {
     if (state.currentPane) sendKeys(state.currentPane, 'Enter');
   });
 
+  // Filer
+  $('btn-filer').addEventListener('click', toggleFiler);
+  $('btn-filer-up').addEventListener('click', handleFilerUp);
+
   // New session
   $('btn-new-session').addEventListener('click', createSession);
 

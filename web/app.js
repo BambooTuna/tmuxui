@@ -37,6 +37,17 @@ async function apiFetch(path, options) {
 
 document.addEventListener('DOMContentLoaded', () => {
   state.token = new URLSearchParams(location.search).get('token') || '';
+
+  // PWA: 初期履歴を上書きして「白い画面」への戻りを防止
+  if (window.navigator.standalone) {
+    history.replaceState({ tmuxui: true }, '');
+    window.addEventListener('popstate', e => {
+      if (!e.state || !e.state.tmuxui) {
+        history.pushState({ tmuxui: true }, '');
+      }
+    });
+  }
+
   bindEvents();
   connectWS();
   loadSessions();

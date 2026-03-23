@@ -224,6 +224,7 @@ function showWindowDetail(sessionName, windowIndex) {
   state.currentWindow = windowIndex;
   updateBreadcrumb();
 
+  syncFilerOnSessionSwitch();
   $('view-sessions').classList.remove('active');
   $('view-detail').classList.add('active');
   $('cmd-input').value = '';
