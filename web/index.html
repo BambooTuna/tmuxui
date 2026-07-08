@@ -10,7 +10,8 @@
   <link rel="apple-touch-icon" href="icon-180.png">
   <meta name="theme-color" content="#1a1a2e">
   <link rel="icon" type="image/png" href="icon-192.png">
-  <link rel="stylesheet" href="style.css?v=8">
+  <link rel="stylesheet" href="vendor/xterm/xterm.css">
+  <link rel="stylesheet" href="style.css?v=14">
 </head>
 <body>
 
@@ -63,7 +64,10 @@
       <div class="filer-toolbar">
         <button id="btn-filer-up" class="btn-filer-nav" aria-label="上のディレクトリ">&#8592;</button>
         <span id="filer-path" class="filer-path-text"></span>
+        <button id="btn-filer-upload" class="btn-filer-nav btn-filer-action" aria-label="アップロード">&#8682;</button>
+        <button id="btn-filer-new-md" class="btn-filer-nav btn-filer-action" aria-label="新規 .md">＋</button>
       </div>
+      <input type="file" id="filer-upload-input" hidden multiple>
       <div id="filer-content" class="filer-content"></div>
     </div>
     <div class="input-area">
@@ -104,6 +108,16 @@
           <div class="theme-switch">
             <button type="button" class="theme-switch-btn" data-theme-value="dark">ダーク</button>
             <button type="button" class="theme-switch-btn" data-theme-value="pastel">パステル</button>
+          </div>
+        </div>
+      </div>
+      <div class="settings-section">
+        <div class="settings-section-title">表示</div>
+        <div class="settings-row">
+          <span class="settings-row-label">描画エンジン</span>
+          <div class="theme-switch">
+            <button type="button" class="renderer-switch-btn" data-renderer-value="xterm">xterm</button>
+            <button type="button" class="renderer-switch-btn" data-renderer-value="classic">従来</button>
           </div>
         </div>
       </div>
@@ -162,6 +176,14 @@
           <span class="sheet-key-icon">⇤</span>
           <span class="sheet-key-label">Shift+Tab</span>
         </button>
+        <button type="button" class="sheet-key" data-keys="PPage">
+          <span class="sheet-key-icon">⇞</span>
+          <span class="sheet-key-label">PgUp</span>
+        </button>
+        <button type="button" class="sheet-key" data-keys="NPage">
+          <span class="sheet-key-icon">⇟</span>
+          <span class="sheet-key-label">PgDn</span>
+        </button>
         <button type="button" class="sheet-category" data-submenu="commands">
           <span class="sheet-key-icon">/</span>
           <span class="sheet-key-label">コマンド</span>
@@ -219,6 +241,7 @@
   <div id="card-menu-overlay" hidden class="sheet-overlay">
     <div class="sheet action-sheet">
       <div class="sheet-handle"></div>
+      <button id="card-menu-pin" class="action-sheet-item">ピン留め</button>
       <button id="card-menu-rename" class="action-sheet-item">名前変更</button>
       <button id="card-menu-delete" class="action-sheet-item action-sheet-danger">セッションを終了</button>
       <button id="card-menu-cancel" class="action-sheet-item action-sheet-cancel">キャンセル</button>
@@ -243,13 +266,16 @@
     </div>
   </div>
 
-  <script src="settings.js?v=8"></script>
-  <script src="app.js?v=8"></script>
-  <script src="ws.js?v=8"></script>
-  <script src="ansi.js?v=8"></script>
-  <script src="views.js?v=8"></script>
-  <script src="snippet.js?v=8"></script>
-  <script src="filer.js?v=8"></script>
-  <script src="input.js?v=8"></script>
+  <script src="vendor/xterm/xterm.js"></script>
+  <script src="vendor/xterm/addon-fit.js"></script>
+  <script src="term.js?v=14"></script>
+  <script src="settings.js?v=14"></script>
+  <script src="app.js?v=14"></script>
+  <script src="ws.js?v=14"></script>
+  <script src="ansi.js?v=14"></script>
+  <script src="views.js?v=14"></script>
+  <script src="snippet.js?v=14"></script>
+  <script src="filer.js?v=14"></script>
+  <script src="input.js?v=14"></script>
 </body>
 </html>

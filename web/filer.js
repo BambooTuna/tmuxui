@@ -111,6 +111,7 @@ async function loadFilerFile(filePath) {
       el.appendChild(msg);
     };
     el.appendChild(img);
+    el.appendChild(filerDownloadBtn(filePath));
     return;
   }
 
@@ -123,6 +124,7 @@ async function loadFilerFile(filePath) {
     video.preload = 'metadata';
     video.src = rawUrl;
     el.appendChild(video);
+    el.appendChild(filerDownloadBtn(filePath));
     return;
   }
 
@@ -144,6 +146,7 @@ async function loadFilerFile(filePath) {
     wrap.appendChild(name);
     wrap.appendChild(audio);
     el.appendChild(wrap);
+    el.appendChild(filerDownloadBtn(filePath));
     return;
   }
 
@@ -159,6 +162,7 @@ async function loadFilerFile(filePath) {
       window.location.href = pdfUrl;
     });
     el.appendChild(wrap);
+    el.appendChild(filerDownloadBtn(filePath));
     return;
   }
 
@@ -179,6 +183,8 @@ async function loadFilerFile(filePath) {
       pre.textContent = data.content;
       el.appendChild(pre);
     }
+    // ダウンロードボタン
+    el.appendChild(filerDownloadBtn(filePath));
   } catch (e) {
     el.textContent = `(読み込み失敗: ${e.message})`;
   }
@@ -311,6 +317,168 @@ function handleFilerUp() {
     fs.history.push(fs.currentPath);
     loadFilerDir(parentPath);
   }
+}
+
+function filerDownloadBtn(filePath) {
+  const fs = currentFilerState();
+  const url = `/api/filer/download?path=${encodeURIComponent(filePath)}&root=${encodeURIComponent(fs.rootPath)}&token=${encodeURIComponent(state.token)}`;
+  const btn = document.createElement('a');
+  btn.href = url;
+  btn.className = 'filer-download-btn';
+  btn.textContent = 'ダウンロード';
+  btn.setAttribute('download', '');
+  return btn;
+}
+
+async function filerCreateMd() {
+  const fs = currentFilerState();
+  if (!fs) return;
+
+  const el = $('filer-content');
+  el.innerHTML = '';
+  fs.viewing = 'file';
+  renderFilerPath();
+
+  const form = document.createElement('div');
+  form.className = 'filer-create-form';
+  form.innerHTML =
+    `<input class="filer-create-input" id="filer-create-name" placeholder="ファイル名 (.md)" autocomplete="off">` +
+    `<textarea class="filer-create-textarea" id="filer-create-content" rows="12" placeholder="内容を入力..."></textarea>` +
+    `<div class="filer-create-actions">` +
+      `<button type="button" class="filer-create-cancel">キャンセル</button>` +
+      `<button type="button" class="filer-create-save">作成</button>` +
+    `</div>`;
+  el.appendChild(form);
+
+  form.querySelector('.filer-create-cancel').addEventListener('click', () => {
+    loadFilerDir(fs.currentPath || fs.rootPath);
+  });
+
+  form.querySelector('.filer-create-save').addEventListener('click', async () => {
+    let name = form.querySelector('#filer-create-name').value.trim();
+    const content = form.querySelector('#filer-create-content').value;
+    if (!name) return;
+    if (!name.endsWith('.md')) name += '.md';
+
+    try {
+      await apiFetch('/api/filer/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          dir: fs.currentPath || fs.rootPath,
+          root: fs.rootPath,
+          filename: name,
+          content: content,
+        }),
+      });
+      loadFilerDir(fs.currentPath || fs.rootPath);
+    } catch (e) {
+      const msg = e.message.includes('409') ? '同名ファイルが既に存在します' : `作成失敗: ${e.message}`;
+      alert(msg);
+    }
+  });
+
+  form.querySelector('#filer-create-name').focus();
+}
+
+// ===== File Upload =====
+function initFilerUpload() {
+  const uploadInput = $('filer-upload-input');
+  $('btn-filer-upload').addEventListener('click', () => {
+    uploadInput.value = '';
+    uploadInput.click();
+  });
+  uploadInput.addEventListener('change', () => {
+    if (uploadInput.files.length > 0) {
+      uploadFiles(uploadInput.files);
+    }
+  });
+
+  // ドラッグ&ドロップ
+  const panel = $('filer-panel');
+  panel.addEventListener('dragover', e => {
+    e.preventDefault();
+    panel.classList.add('filer-dragover');
+  });
+  panel.addEventListener('dragleave', e => {
+    e.preventDefault();
+    panel.classList.remove('filer-dragover');
+  });
+  panel.addEventListener('drop', e => {
+    e.preventDefault();
+    panel.classList.remove('filer-dragover');
+    if (e.dataTransfer.files.length > 0) {
+      uploadFiles(e.dataTransfer.files);
+    }
+  });
+}
+
+async function uploadFiles(fileList) {
+  const fs = currentFilerState();
+  if (!fs) return;
+
+  const results = [];
+  for (const file of fileList) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('root', fs.rootPath);
+
+    try {
+      const sep = '/api/filer/upload'.includes('?') ? '&' : '?';
+      const url = `/api/filer/upload${sep}token=${encodeURIComponent(state.token)}`;
+      const res = await fetch(url, { method: 'POST', body: formData });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      results.push(data);
+    } catch (e) {
+      results.push({ error: e.message, filename: file.name });
+    }
+  }
+
+  showUploadResults(results);
+  // ファイラーのリストを更新
+  loadFilerDir(fs.currentPath || fs.rootPath);
+}
+
+function showUploadResults(results) {
+  const el = document.createElement('div');
+  el.className = 'filer-upload-toast';
+
+  for (const r of results) {
+    const row = document.createElement('div');
+    row.className = 'filer-upload-result';
+    if (r.error) {
+      row.innerHTML = `<span class="filer-upload-error">${esc(r.filename)}: ${esc(r.error)}</span>`;
+    } else {
+      row.innerHTML =
+        `<span class="filer-upload-path">${esc(r.path)}</span>` +
+        `<div class="filer-upload-actions">` +
+          `<button type="button" class="filer-upload-copy">コピー</button>` +
+          `<button type="button" class="filer-upload-send">ターミナルに送信</button>` +
+        `</div>`;
+      row.querySelector('.filer-upload-copy').addEventListener('click', () => {
+        navigator.clipboard.writeText(r.path).then(() => {
+          row.querySelector('.filer-upload-copy').textContent = 'コピー済';
+          setTimeout(() => { row.querySelector('.filer-upload-copy').textContent = 'コピー'; }, 1500);
+        }).catch(() => {});
+      });
+      row.querySelector('.filer-upload-send').addEventListener('click', () => {
+        if (state.currentPane) {
+          sendKeys(state.currentPane, r.path);
+        }
+      });
+    }
+    el.appendChild(row);
+  }
+
+  const closeBtn = document.createElement('button');
+  closeBtn.className = 'filer-upload-toast-close';
+  closeBtn.textContent = '×';
+  closeBtn.addEventListener('click', () => el.remove());
+  el.appendChild(closeBtn);
+
+  document.body.appendChild(el);
+  setTimeout(() => { if (el.parentNode) el.remove(); }, 15000);
 }
 
 // セッション切替時にファイラー状態を復元/リセット

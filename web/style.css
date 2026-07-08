@@ -243,6 +243,20 @@ button, input, textarea {
   background: var(--bg3);
 }
 
+.session-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+
+.session-card-title {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
 .session-card-name {
   font-size: 16px;
   font-weight: 600;
@@ -250,7 +264,66 @@ button, input, textarea {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  min-width: 0;
 }
+
+.session-worktree {
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ===== Agent Status Badge (herdr agent_status) ===== */
+.agent-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 8px;
+  flex-shrink: 0;
+  margin-left: 8px;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+.agent-badge--blocked {
+  color: var(--error);
+  background: color-mix(in srgb, var(--error) 16%, transparent);
+  border: 1px solid color-mix(in srgb, var(--error) 40%, transparent);
+}
+
+.agent-badge--working {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.agent-badge--idle,
+.agent-badge--done {
+  color: var(--muted);
+  background: var(--bg3);
+}
+
+.agent-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 6px;
+  flex-shrink: 0;
+}
+
+.agent-dot--blocked {
+  background: var(--error);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--error) 25%, transparent);
+}
+
+.agent-dot--working { background: var(--accent); }
+
+.agent-dot--idle,
+.agent-dot--done { background: var(--muted); }
 
 .session-card-meta {
   font-size: 12px;
@@ -262,16 +335,21 @@ button, input, textarea {
   margin-left: 12px;
 }
 
-.session-activity {
-  font-size: 11px;
-  color: var(--muted);
+.session-pin-badge {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  padding: 2px 6px;
+  border-radius: 8px;
   flex-shrink: 0;
   margin-left: 8px;
+  letter-spacing: 0.5px;
 }
 
-.session-active {
+.session-pinned {
   border-left: 3px solid var(--accent);
-  background: color-mix(in srgb, var(--accent) 8%, var(--bg2));
 }
 
 .empty-state {
@@ -408,6 +486,21 @@ button, input, textarea {
   background: var(--bg);
   -webkit-user-select: text;
   user-select: text;
+}
+
+/* xterm.js使用時: FitAddonは#pane-contentの高さ/幅から.xterm自身のpaddingだけを差し引いて
+   cols/rowsを計算するため、paddingはコンテナではなく.xterm側に持たせる */
+#pane-content:has(.xterm) {
+  padding: 0;
+}
+#pane-content .xterm {
+  padding: 8px 12px;
+  padding-left:  calc(12px + var(--safe-left));
+  padding-right: calc(12px + var(--safe-right));
+  /* ペインの実サイズが正: 画面より広いcolsのときは自然幅を保ち、#pane-contentの
+     overflow-x:autoで横パンできるようにする(FitAddonでの強制縮小はしない) */
+  width: max-content;
+  min-width: 100%;
 }
 
 /* ===== Input Area ===== */
@@ -1377,4 +1470,152 @@ button, input, textarea {
 .filer-audio-wrap audio {
   width: 100%;
   max-width: 400px;
+}
+
+/* ===== Filer Download ===== */
+.filer-download-btn {
+  display: block;
+  text-align: center;
+  padding: 10px 24px;
+  margin: 16px auto;
+  background: var(--bg3);
+  color: var(--accent);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  max-width: 200px;
+}
+.filer-download-btn:active { opacity: 0.7; }
+
+/* ===== Filer Create .md ===== */
+.btn-filer-action {
+  font-size: 14px;
+  min-width: 36px;
+  min-height: 36px;
+}
+.filer-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 4px;
+}
+.filer-create-input {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: var(--mono);
+}
+.filer-create-textarea {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 10px 12px;
+  font-size: 13px;
+  font-family: var(--mono);
+  line-height: 1.5;
+  resize: vertical;
+  min-height: 120px;
+}
+.filer-create-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.filer-create-cancel {
+  padding: 8px 16px;
+  background: var(--bg3);
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 14px;
+  cursor: pointer;
+}
+.filer-create-save {
+  padding: 8px 16px;
+  background: var(--accent);
+  color: #000;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.filer-create-save:active { opacity: 0.7; }
+
+/* ===== Filer Upload ===== */
+.filer-dragover {
+  outline: 2px dashed var(--accent);
+  outline-offset: -4px;
+  background: rgba(77, 171, 247, 0.05);
+}
+
+.filer-upload-toast {
+  position: fixed;
+  bottom: calc(16px + var(--safe-bottom));
+  left: 16px;
+  right: 16px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  z-index: 500;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+}
+
+.filer-upload-result {
+  margin-bottom: 8px;
+}
+.filer-upload-result:last-of-type { margin-bottom: 0; }
+
+.filer-upload-path {
+  display: block;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--text);
+  word-break: break-all;
+  margin-bottom: 6px;
+}
+
+.filer-upload-error {
+  font-size: 12px;
+  color: var(--error);
+}
+
+.filer-upload-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.filer-upload-copy,
+.filer-upload-send {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg3);
+  color: var(--accent);
+  font-size: 12px;
+  font-family: var(--mono);
+  cursor: pointer;
+}
+.filer-upload-copy:active,
+.filer-upload-send:active { opacity: 0.7; }
+
+.filer-upload-send {
+  color: var(--success);
+}
+
+.filer-upload-toast-close {
+  position: absolute;
+  top: 8px;
+  right: 10px;
+  background: none;
+  border: none;
+  color: var(--muted);
+  font-size: 18px;
+  cursor: pointer;
 }

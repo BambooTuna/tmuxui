@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"io"
+	"mime"
 	"net/http"
 	"os"
 	"os/exec"
@@ -220,6 +223,183 @@ var filerRawAllowed = map[string]string{
 }
 
 const filerRawMaxSize = 50 << 20 // 50MB
+
+func handleFilerDownload(w http.ResponseWriter, r *http.Request) {
+	root := r.URL.Query().Get("root")
+	filePath, ok := safeFilerPath(r.URL.Query().Get("path"), root)
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	info, err := os.Stat(filePath)
+	if err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	if info.IsDir() {
+		http.Error(w, "is a directory", http.StatusBadRequest)
+		return
+	}
+	if info.Size() > filerRawMaxSize {
+		http.Error(w, "file too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	f, err := os.Open(filePath)
+	if err != nil {
+		http.Error(w, "read error", http.StatusInternalServerError)
+		return
+	}
+	defer f.Close()
+
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filepath.Base(filePath)}))
+	http.ServeContent(w, r, filepath.Base(filePath), info.ModTime(), f)
+}
+
+func handleFilerCreate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Dir      string `json:"dir"`
+		Root     string `json:"root"`
+		Filename string `json:"filename"`
+		Content  string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "bad request", http.StatusBadRequest)
+		return
+	}
+	if req.Filename == "" || req.Root == "" {
+		http.Error(w, "filename and root required", http.StatusBadRequest)
+		return
+	}
+	// .md のみ許可
+	if strings.ToLower(filepath.Ext(req.Filename)) != ".md" {
+		http.Error(w, "only .md files allowed", http.StatusForbidden)
+		return
+	}
+	// ファイル名にパス区切りを含まないことを確認
+	if strings.ContainsAny(req.Filename, "/\\") {
+		http.Error(w, "invalid filename", http.StatusBadRequest)
+		return
+	}
+
+	dir := req.Dir
+	if dir == "" {
+		dir = req.Root
+	}
+	dirPath, ok := safeFilerPath(dir, req.Root)
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	filePath := filepath.Join(dirPath, req.Filename)
+
+	const maxCreateSize = 1 << 20 // 1MB
+	if len(req.Content) > maxCreateSize {
+		http.Error(w, "content too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+
+	f, err := os.OpenFile(filePath, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0644)
+	if os.IsExist(err) {
+		http.Error(w, "file already exists", http.StatusConflict)
+		return
+	}
+	if err != nil {
+		http.Error(w, "write error", http.StatusInternalServerError)
+		return
+	}
+	defer f.Close()
+	if _, err := f.WriteString(req.Content); err != nil {
+		http.Error(w, "write error", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"name": req.Filename})
+}
+
+func handleFilerUpload(w http.ResponseWriter, r *http.Request) {
+	const maxUploadSize = 50 << 20 // 50MB
+	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
+
+	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
+		http.Error(w, "file too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+
+	root := r.FormValue("root")
+	if root == "" {
+		http.Error(w, "root required", http.StatusBadRequest)
+		return
+	}
+
+	// アップロード先は常に {root}/tmp
+	uploadDir := filepath.Join(filepath.Clean(root), "tmp")
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		http.Error(w, "cannot create upload dir", http.StatusInternalServerError)
+		return
+	}
+	dirPath, ok := safeFilerPath(uploadDir, root)
+	if !ok {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "file required", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	filename := filepath.Base(header.Filename)
+	if filename == "" || filename == "." || filename == ".." {
+		http.Error(w, "invalid filename", http.StatusBadRequest)
+		return
+	}
+	// パストラバーサル防止
+	if strings.ContainsAny(filename, "/\\") {
+		http.Error(w, "invalid filename", http.StatusBadRequest)
+		return
+	}
+
+	destPath := filepath.Join(dirPath, filename)
+
+	// 同名ファイルがある場合はリネーム
+	if _, err := os.Stat(destPath); err == nil {
+		ext := filepath.Ext(filename)
+		base := strings.TrimSuffix(filename, ext)
+		for i := 1; ; i++ {
+			candidate := fmt.Sprintf("%s_%d%s", base, i, ext)
+			destPath = filepath.Join(dirPath, candidate)
+			if _, err := os.Stat(destPath); os.IsNotExist(err) {
+				filename = candidate
+				break
+			}
+			if i > 100 {
+				http.Error(w, "too many duplicates", http.StatusConflict)
+				return
+			}
+		}
+	}
+
+	dst, err := os.Create(destPath)
+	if err != nil {
+		http.Error(w, "write error", http.StatusInternalServerError)
+		return
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, file); err != nil {
+		os.Remove(destPath)
+		http.Error(w, "write error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{
+		"path":     destPath,
+		"filename": filename,
+	})
+}
 
 func handleFilerRaw(w http.ResponseWriter, r *http.Request) {
 	root := r.URL.Query().Get("root")

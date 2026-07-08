@@ -66,6 +66,73 @@ func (p *Preferences) saveLoop() {
 	}
 }
 
+func (p *Preferences) updatePinned(transform func([]string) []string) {
+	p.mu.Lock()
+	cur, _ := p.data["pinnedSessions"].([]any)
+	names := make([]string, 0, len(cur))
+	for _, v := range cur {
+		if s, ok := v.(string); ok {
+			names = append(names, s)
+		}
+	}
+	next := transform(names)
+	if next == nil {
+		p.mu.Unlock()
+		return
+	}
+	out := make([]any, len(next))
+	for i, s := range next {
+		out[i] = s
+	}
+	p.data["pinnedSessions"] = out
+	p.dirty = true
+	p.mu.Unlock()
+	select {
+	case p.saveCh <- struct{}{}:
+	default:
+	}
+}
+
+func removePinnedSession(name string) {
+	if globalPreferences == nil {
+		return
+	}
+	globalPreferences.updatePinned(func(cur []string) []string {
+		out := cur[:0]
+		changed := false
+		for _, n := range cur {
+			if n == name {
+				changed = true
+				continue
+			}
+			out = append(out, n)
+		}
+		if !changed {
+			return nil
+		}
+		return out
+	})
+}
+
+func renamePinnedSession(oldName, newName string) {
+	if globalPreferences == nil {
+		return
+	}
+	globalPreferences.updatePinned(func(cur []string) []string {
+		changed := false
+		for i, n := range cur {
+			if n == oldName {
+				cur[i] = newName
+				changed = true
+			}
+		}
+		if !changed {
+			return nil
+		}
+		return cur
+	})
+}
+
 func (p *Preferences) save() {
 	p.mu.Lock()
 	if !p.dirty {
