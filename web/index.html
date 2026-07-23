@@ -6,12 +6,12 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <title>tmuxui</title>
-  <link rel="manifest" href="manifest.json">
+  <link rel="manifest" href="manifest.json" crossorigin="use-credentials">
   <link rel="apple-touch-icon" href="icon-180.png">
   <meta name="theme-color" content="#1a1a2e">
   <link rel="icon" type="image/png" href="icon-192.png">
   <link rel="stylesheet" href="vendor/xterm/xterm.css">
-  <link rel="stylesheet" href="style.css?v=14">
+  <link rel="stylesheet" href="style.css?v=17">
 </head>
 <body>
 
@@ -23,6 +23,11 @@
       <button id="btn-settings" class="btn-icon" aria-label="設定">&#9881;</button>
       <span id="ws-dot" class="ws-dot"></span>
     </header>
+    <div id="session-filter-chips" class="session-filter-chips">
+      <button type="button" class="filter-chip" data-filter="all">すべて</button>
+      <button type="button" class="filter-chip" data-filter="blocked">⚠ 要対応<span id="filter-chip-blocked-count" class="filter-chip-count" hidden></span></button>
+      <button type="button" class="filter-chip" data-filter="working">作業中</button>
+    </div>
     <main id="session-list" class="session-list"></main>
   </div>
   <!-- ===== 画面2: セッション詳細 ===== -->
@@ -272,12 +277,12 @@
 
   <script src="vendor/xterm/xterm.js"></script>
   <script src="vendor/xterm/addon-fit.js"></script>
-  <script src="term.js?v=14"></script>
+  <script src="term.js?v=18"></script>
   <script src="settings.js?v=14"></script>
   <script src="app.js?v=14"></script>
   <script src="ws.js?v=14"></script>
   <script src="ansi.js?v=14"></script>
-  <script src="views.js?v=14"></script>
+  <script src="views.js?v=15"></script>
   <script src="snippet.js?v=14"></script>
   <script src="filer.js?v=14"></script>
   <script src="input.js?v=14"></script>

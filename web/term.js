@@ -44,7 +44,7 @@ function termInit() {
 
   terminal = new Terminal({
     disableStdin: true,
-    scrollback: 5000,
+    scrollback: 20000,
     fontSize: 12,
     convertEol: false,
     fontFamily: (getComputedStyle(document.documentElement).getPropertyValue('--mono') || 'monospace').trim(),
@@ -92,10 +92,38 @@ function termWriteSnapshot(bytes) {
   if (!terminal) return;
   terminal.reset();
   terminal.write(bytes);
+  termSyncScrollLock();
 }
 
 function termWrite(bytes) {
-  if (terminal) terminal.write(bytes);
+  if (!terminal) return;
+  terminal.write(bytes);
+  termSyncScrollLock();
+}
+
+// termBufferType()==='alternate'(スクロールバックが無く、input.jsのinitScrollForward()が
+// スワイプ/ホイールをPgUp/PgDn転送に回す状態)の間は、xterm.js自身の.xterm-viewportの
+// ネイティブスクロールを止める。止めないと「PC側へのページ送り」とxterm.js側の見た目上の
+// スクロールが同時に起きる二重スクロールになる(転送先には何も表示が追従しないローカルの
+// スクロールだけが残ってズレる)。通常のスクロールバックありペインでは何もしない。
+// .xterm-viewportだけでなく#pane-content自体もロック対象にする: ペインの実サイズ(サーバー側の
+// 行数)がコンテナの表示可能高さを超えるとき、#pane-content自体がoverflow-y:autoで独自に
+// スクロール可能になっており、.xterm-viewportだけ止めてもこちらが「ちょっとだけ」動いてしまう。
+// ロックはscrollTopを0(先頭)に固定するのではなく末尾へ寄せる: 固定前にscrollTop=0のままだと
+// はみ出た分(ペインの実サイズ-コンテナ高さ)だけ末尾(最新行)が常に見切れてしまうため。
+function termSyncScrollLock() {
+  if (!terminal || !terminal.element) return;
+  const viewport = terminal.element.querySelector('.xterm-viewport');
+  const container = document.getElementById('pane-content');
+  const locked = termBufferType() === 'alternate';
+  if (viewport) {
+    viewport.classList.toggle('term-scroll-locked', locked);
+    if (locked) viewport.scrollTop = viewport.scrollHeight;
+  }
+  if (container) {
+    container.classList.toggle('term-scroll-locked', locked);
+    if (locked) container.scrollTop = container.scrollHeight;
+  }
 }
 
 // ペインの実サイズが正のため、ここではterminalに適用せず「画面に収まる希望サイズ」を
@@ -120,6 +148,17 @@ function termGetSize() {
   return terminal ? { cols: terminal.cols, rows: terminal.rows } : null;
 }
 
+// input.jsのinitScrollForward()がローカルスクロール可否の判定にのみ使う。alternate画面
+// バッファ(フルスクリーンTUI)はxterm.jsが自力で検知できるが、herdrバックエンド経由では
+// pane.readがモード切替シーケンス自体を運ばない(画面クリア+全量再描画で都度書き込むだけの
+// ため、\x1b[?1049h相当が来ない)ためbuffer.active.typeが常に'normal'のままになり、Claude Code
+// 等のフルスクリーンTUI(herdr側にもスクロールバックが存在しない: 実機確認済み)でスワイプしても
+// ローカルにスクロールする内容が無く「見えている範囲から出られない」。baseY===0(遡れる行が無い)
+// の場合もalternate相当として扱い、initScrollForward()側でPgUp/PgDn転送(TUI側のページ送り)に
+// フォールバックできるようにする。
 function termBufferType() {
-  return terminal ? terminal.buffer.active.type : 'normal';
+  if (!terminal) return 'normal';
+  const buf = terminal.buffer.active;
+  if (buf.type === 'alternate' || buf.baseY === 0) return 'alternate';
+  return 'normal';
 }

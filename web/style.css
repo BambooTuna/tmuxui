@@ -225,6 +225,69 @@ button, input, textarea {
   padding-bottom: calc(12px + var(--safe-bottom));
 }
 
+/* ===== Session Filter Chips ===== */
+.session-filter-chips {
+  display: flex;
+  gap: 8px;
+  padding: 10px 12px 0;
+  padding-left:  calc(12px + var(--safe-left));
+  padding-right: calc(12px + var(--safe-right));
+  flex-shrink: 0;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.session-filter-chips::-webkit-scrollbar { display: none; }
+.session-filter-chips { scrollbar-width: none; }
+
+.filter-chip {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  padding: 0 14px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.filter-chip:active { background: var(--bg3); }
+
+.filter-chip.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+.filter-chip-count {
+  font-weight: 700;
+}
+
+.filter-chip[data-filter="blocked"] .filter-chip-count { color: var(--error); }
+.filter-chip[data-filter="blocked"].active .filter-chip-count { color: #fff; }
+
+/* ===== Session Section Heading (herdr/tmux分離) ===== */
+.session-section-heading {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin: 14px 4px 6px;
+}
+
+.session-section-heading:first-child {
+  margin-top: 2px;
+}
+
 .session-card {
   background: var(--bg2);
   border: 1px solid var(--border);
@@ -259,12 +322,25 @@ button, input, textarea {
 
 .session-card-name {
   font-size: 16px;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+}
+
+/* 2行目: コマンド名・ペイン数・worktreeラベルをまとめて配置するmuted色の行 */
+.session-card-sub {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  margin-top: 2px;
+}
+
+.session-card-sub .session-card-meta {
+  margin-left: 0;
 }
 
 .session-worktree {
@@ -350,6 +426,12 @@ button, input, textarea {
 
 .session-pinned {
   border-left: 3px solid var(--accent);
+}
+
+/* blockedは要対応の核心ユースケースのため、ピン留めより優先して左ボーダーで示す
+   (CSSの記述順で.session-pinnedより後に置き、両方付いていてもこちらが勝つようにする) */
+.session-blocked {
+  border-left: 3px solid var(--error);
 }
 
 .empty-state {
@@ -501,6 +583,17 @@ button, input, textarea {
      overflow-x:autoで横パンできるようにする(FitAddonでの強制縮小はしない) */
   width: max-content;
   min-width: 100%;
+}
+
+/* term.jsのtermSyncScrollLock()が付け外しする: スクロールバックが無いペイン(alternate画面
+   バッファ相当)でinput.jsがスワイプ/ホイールをPgUp/PgDn転送に回している間、xterm.js自身の
+   ネイティブスクロールを止めて二重スクロールを防ぐ。ペインの実サイズがコンテナよりはみ出ると
+   #pane-content自体もoverflow-y:autoで独自にスクロールしてしまうため、両方をロック対象にする */
+#pane-content .xterm-viewport.term-scroll-locked {
+  overflow-y: hidden !important;
+}
+#pane-content.term-scroll-locked {
+  overflow-y: hidden !important;
 }
 
 /* ===== Input Area ===== */

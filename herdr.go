@@ -178,6 +178,17 @@ type herdrReadResult struct {
 	} `json:"read"`
 }
 
+// herdrPaneGetResult はpane.getの結果のうちscroll.viewport_rowsだけを見る(実機確認済み:
+// pane_id指定でそのpane1件分のscroll{offset_from_bottom, max_offset_from_bottom, viewport_rows}
+// を返す)。
+type herdrPaneGetResult struct {
+	Pane struct {
+		Scroll struct {
+			ViewportRows int `json:"viewport_rows"`
+		} `json:"scroll"`
+	} `json:"pane"`
+}
+
 // herdrTargetPattern はherdrのpane_id形式("w1:p2"など、実機確認済み)にマッチする。
 var herdrTargetPattern = regexp.MustCompile(`^[A-Za-z0-9]+:p[A-Za-z0-9]+$`)
 
@@ -374,14 +385,16 @@ func (b *HerdrBackend) paneSize(target string) (cols, rows int) {
 	return res.Layout.Area.Width, res.Layout.Area.Height
 }
 
-// Snapshot は現在の可視画面をANSI付きで1回分取得する。tmux版と異なりカーソル位置は
-// herdr側から取得できない(pane.read/pane.layoutともにカーソル座標を返さない)ため、
+// Snapshot はスクロールバック込みの画面内容をANSI付きで1回分取得する。tmux版のcapture-pane
+// -S -snapshotHistoryLines同様、source:"recent"+lines:snapshotHistoryLinesでxterm.js側の
+// scrollbackバッファ(term.jsのscrollback:20000)を初期表示から遡れるようにする。tmux版と異なり
+// カーソル位置はherdr側から取得できない(pane.read/pane.layoutともにカーソル座標を返さない)ため、
 // カーソル位置決め打ちは行わない。xterm.js側は書き込んだ内容の末尾にカーソルを置くため、
 // 通常のシェル/エージェント画面では実用上問題にならない。
 func (b *HerdrBackend) Snapshot(target string) ([]byte, int, int, error) {
 	var res herdrReadResult
 	if err := b.client.call("pane.read", map[string]interface{}{
-		"pane_id": target, "source": "visible", "format": "ansi", "strip_ansi": false,
+		"pane_id": target, "source": "recent", "lines": snapshotHistoryLines, "format": "ansi", "strip_ansi": false,
 	}, &res); err != nil {
 		return nil, 0, 0, err
 	}
@@ -421,8 +434,43 @@ func (b *HerdrBackend) Subscribe(target string) (<-chan []byte, func(), error) {
 	return ch, cancel, nil
 }
 
-// runPoller はtargetのpane.read(visible/ansi)を定期的に取得し、前回と異なれば
-// 「画面クリア+全量再描画」チャンクを購読者全員に配信する。送信チャネルが詰まっている
+// paneViewportRows はpane.get.scroll.viewport_rowsを取得する。herdrの"visible"はPC本体の
+// (スクロール位置込みの)デスクトップUIビューポートをそのまま返すため、実機確認済みの通り
+// PC側でスクロールされるとvisibleの内容もスクロール位置に応じて変わってしまう。runPollerは
+// それだと他クライアント(スマホ等)の画面がPCのスクロール位置をミラーしてしまうため、
+// "recent"+viewport_rows行で常にライブ最下部を基準に読む(下記runPoller参照)。取得失敗/0の
+// 場合は0を返し、呼び出し側でvisibleへフォールバックする。
+func (b *HerdrBackend) paneViewportRows(target string) int {
+	var res herdrPaneGetResult
+	if err := b.client.call("pane.get", map[string]string{"pane_id": target}, &res); err != nil {
+		return 0
+	}
+	return res.Pane.Scroll.ViewportRows
+}
+
+// lastNLines はsの末尾n行だけを返す安全装置。"recent"+linesは実機確認済みでは要求行数
+// ちょうどを返すが、万一lines指定を超えて返ってきた場合にxterm.js側のscrollbackへ
+// (visible相当を超える分が)重複して積み上がるのを防ぐ。n<=0または行数がn以下ならsをそのまま返す。
+func lastNLines(s string, n int) string {
+	if n <= 0 {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) <= n {
+		return s
+	}
+	return strings.Join(lines[len(lines)-n:], "\n")
+}
+
+// runPoller はtargetの画面内容を定期的に取得し、前回と異なれば「画面クリア+全量再描画」
+// チャンクを購読者全員に配信する。viewport_rowsが取得できる限りsource:"recent"+
+// lines:viewport_rowsで読む(=PC本体のスクロール位置に関係なく常にライブ最下部のviewport_rows行、
+// 実機確認済みでoffset_from_bottom=0時はvisibleと完全一致)。取得できない場合のみ従来通り
+// source:"visible"にフォールバックする。クリアシーケンスは\x1b[H\x1b[2J(カーソルホーム+
+// 画面消去)であり、\x1bc(RIS)ではないためxterm.js側のスクロールバックは消えない
+// (xterm.jsのEraseInDisplayはmode 2ではviewport内の行のみをリセットし、scrollbackを
+// trimするのはmode 3の場合のみ)。よってSnapshotがrecentで書き込んだ履歴はポーリング更新後も
+// 残り続け、かつ(lastNLinesでviewport_rows以内に切り詰めているため)重複して積み上がることもない。
 // 購読者はTmuxControlBackend.handleOutputと同様、溜めずにcloseしてcancel扱いにする。
 func (b *HerdrBackend) runPoller(target string, p *herdrPoller) {
 	ticker := time.NewTicker(herdrSubscribePollInterval)
@@ -434,19 +482,29 @@ func (b *HerdrBackend) runPoller(target string, p *herdrPoller) {
 		case <-ticker.C:
 		}
 
-		var res herdrReadResult
-		if err := b.client.call("pane.read", map[string]interface{}{
+		rows := b.paneViewportRows(target)
+		params := map[string]interface{}{
 			"pane_id": target, "source": "visible", "format": "ansi", "strip_ansi": false,
-		}, &res); err != nil {
+		}
+		if rows > 0 {
+			params["source"] = "recent"
+			params["lines"] = rows
+		}
+		var res herdrReadResult
+		if err := b.client.call("pane.read", params, &res); err != nil {
 			continue
+		}
+		text := res.Read.Text
+		if rows > 0 {
+			text = lastNLines(text, rows)
 		}
 
 		b.mu.Lock()
-		if p.lastText == res.Read.Text {
+		if p.lastText == text {
 			b.mu.Unlock()
 			continue
 		}
-		p.lastText = res.Read.Text
+		p.lastText = text
 		chs := make([]chan []byte, 0, len(p.subs))
 		onces := make([]*sync.Once, 0, len(p.subs))
 		for ch, o := range p.subs {
@@ -455,7 +513,7 @@ func (b *HerdrBackend) runPoller(target string, p *herdrPoller) {
 		}
 		b.mu.Unlock()
 
-		chunk := []byte("\x1b[H\x1b[2J" + res.Read.Text)
+		chunk := []byte("\x1b[H\x1b[2J" + text)
 		var overflowed []chan []byte
 		for i, ch := range chs {
 			select {
@@ -475,11 +533,13 @@ func (b *HerdrBackend) runPoller(target string, p *herdrPoller) {
 	}
 }
 
-// CapturePane はポーリング表示・permission検知向けの平文+ANSI付きキャプチャを返す。
+// CapturePane はポーリング表示・permission検知向けの平文+ANSI付きキャプチャを、Snapshotと同様
+// source:"recent"+lines:snapshotHistoryLinesでスクロールバック込みに取得する(classic描画/REST経由の
+// 遡りにも対応するため)。
 func (b *HerdrBackend) CapturePane(target string) (*PaneContent, error) {
 	var res herdrReadResult
 	if err := b.client.call("pane.read", map[string]interface{}{
-		"pane_id": target, "source": "visible", "format": "text", "strip_ansi": true,
+		"pane_id": target, "source": "recent", "lines": snapshotHistoryLines, "format": "text", "strip_ansi": true,
 	}, &res); err != nil {
 		return nil, err
 	}
@@ -494,7 +554,7 @@ func (b *HerdrBackend) CapturePane(target string) (*PaneContent, error) {
 func (b *HerdrBackend) CapturePanePlain(target string) (string, error) {
 	var res herdrReadResult
 	if err := b.client.call("pane.read", map[string]interface{}{
-		"pane_id": target, "source": "visible", "format": "text", "strip_ansi": true,
+		"pane_id": target, "source": "recent", "lines": snapshotHistoryLines, "format": "text", "strip_ansi": true,
 	}, &res); err != nil {
 		return "", err
 	}
