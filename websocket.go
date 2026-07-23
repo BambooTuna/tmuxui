@@ -3,14 +3,22 @@ package main
 import (
 	"encoding/base64"
 	"encoding/json"
+	"log"
 	"net/http"
 	"net/url"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 )
+
+func recoverAndLog(where string) {
+	if r := recover(); r != nil {
+		log.Printf("panic recovered in %s: %v\n%s", where, r, debug.Stack())
+	}
+}
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
@@ -48,17 +56,37 @@ type WSMessage struct {
 }
 
 type Client struct {
-	hub    *Hub
-	conn   *websocket.Conn
-	send   chan []byte
-	done   chan struct{}
-	mu     sync.Mutex
-	target string
+	hub       *Hub
+	conn      *websocket.Conn
+	send      chan []byte // 送信側が複数存在するため close しない。終了シグナルは done で行う
+	done      chan struct{}
+	closeOnce sync.Once
+	mu        sync.Mutex
+	target    string
 
 	// backend.Subscribe経由のpane_output配信を管理する。1subscriptionにつき1goroutineで直列送信する。
 	subMu   sync.Mutex
 	subGen  uint64
 	subStop func()
+}
+
+func (c *Client) close() {
+	c.closeOnce.Do(func() {
+		close(c.done)
+	})
+}
+
+func (c *Client) trySend(msg []byte) {
+	select {
+	case <-c.done:
+		return
+	default:
+	}
+	select {
+	case c.send <- msg:
+	case <-c.done:
+	default:
+	}
 }
 
 type Hub struct {
@@ -86,11 +114,7 @@ func (h *Hub) unregister(c *Client) {
 	delete(h.clients, c)
 	h.mu.Unlock()
 	c.stopSubscription()
-	select {
-	case <-c.done:
-	default:
-		close(c.done)
-	}
+	c.close()
 }
 
 func (h *Hub) run() {
@@ -98,12 +122,15 @@ func (h *Hub) run() {
 	defer ticker.Stop()
 	tick := 0
 	for range ticker.C {
-		tick++
-		// 権限検知は現行tickを3回に1回に間引く(約1秒間隔)。表示用ポーリング自体は300msのまま維持する。
-		h.pollPanes(tick%3 == 0)
-		if tick%20 == 0 {
-			h.broadcastPaneList()
-		}
+		func() {
+			defer recoverAndLog("hub.run tick")
+			tick++
+			// 権限検知は現行tickを3回に1回に間引く(約1秒間隔)。表示用ポーリング自体は300msのまま維持する。
+			h.pollPanes(tick%3 == 0)
+			if tick%20 == 0 {
+				h.broadcastPaneList()
+			}
+		}()
 	}
 }
 
@@ -191,10 +218,7 @@ func (h *Hub) broadcastPaneList() {
 
 func (h *Hub) sendToClients(clients []*Client, msg []byte) {
 	for _, c := range clients {
-		select {
-		case c.send <- msg:
-		default:
-		}
+		c.trySend(msg)
 	}
 }
 
@@ -214,10 +238,7 @@ func handleWS(hub *Hub, w http.ResponseWriter, r *http.Request) {
 
 	if sessions, err := hub.registry.ListSessions(); err == nil {
 		if msg, err := json.Marshal(WSMessage{Type: "pane_list", Sessions: sessions}); err == nil {
-			select {
-			case c.send <- msg:
-			default:
-			}
+			c.trySend(msg)
 		}
 	}
 
@@ -226,6 +247,7 @@ func handleWS(hub *Hub, w http.ResponseWriter, r *http.Request) {
 
 func (c *Client) readPump() {
 	defer c.hub.unregister(c)
+	defer recoverAndLog("readPump")
 	for {
 		_, data, err := c.conn.ReadMessage()
 		if err != nil {
@@ -254,10 +276,7 @@ func (c *Client) readPump() {
 						Content: pc.Content,
 						Ts:      pc.Ts,
 					})
-					select {
-					case c.send <- out:
-					default:
-					}
+					c.trySend(out)
 				}
 			}
 			if msg.Target != "" {
@@ -292,10 +311,7 @@ func (c *Client) readPump() {
 					Content: pc.Content,
 					Ts:      pc.Ts,
 				})
-				select {
-				case c.send <- out:
-				default:
-				}
+				c.trySend(out)
 			}
 		}
 	}
@@ -303,14 +319,15 @@ func (c *Client) readPump() {
 
 func (c *Client) writePump() {
 	defer c.conn.Close()
+	defer recoverAndLog("writePump")
 	for {
 		select {
+		case <-c.done:
+			return
 		case msg := <-c.send:
 			if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
 				return
 			}
-		case <-c.done:
-			return
 		}
 	}
 }
