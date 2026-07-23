@@ -207,10 +207,14 @@ function bindEvents() {
       $('sheet-categories').hidden = false;
     });
   }
+  // 連打できるようキー送信ではシートを閉じない（閉じるのは外側タップのみ）。
+  // :activeは素早いタップだと視認できないため、送信ごとにフラッシュを再生する。
   for (const btn of $('keys-sheet-overlay').querySelectorAll('.sheet-key')) {
     btn.addEventListener('click', () => {
       if (state.currentPane) sendKeys(state.currentPane, btn.dataset.keys);
-      closeSheet();
+      btn.classList.remove('key-flash');
+      void btn.offsetWidth; // reflowを挟んで連打時もアニメーションを毎回リスタートさせる
+      btn.classList.add('key-flash');
     });
   }
   for (const btn of $('keys-sheet-overlay').querySelectorAll('.sheet-cmd')) {

@@ -1028,6 +1028,25 @@ button, input, textarea {
 
 .sheet-key:active { background: rgba(255,255,255,0.1); }
 
+/* キー送信時のフィードバック。シートを閉じずに連打できるため、
+   送信されたことが分かるようアクセント色で一瞬光らせる */
+.sheet-key.key-flash {
+  animation: key-flash 0.3s ease-out;
+}
+
+@keyframes key-flash {
+  0% {
+    background: var(--accent);
+    border-color: var(--accent);
+    transform: scale(0.94);
+  }
+  100% {
+    background: var(--bg3);
+    border-color: var(--border);
+    transform: scale(1);
+  }
+}
+
 .sheet-key-icon {
   font-size: 20px;
   color: var(--text);
