@@ -4,10 +4,13 @@ tmp_dir = "tmp"
 [build]
   cmd = "go build -o ./tmp/tmuxui ."
   bin = "./tmp/tmuxui"
-  full_bin = "set -a; source .env 2>/dev/null; set +a; ./tmp/tmuxui --dev --host 0.0.0.0"
+  # execでshを置き換えないと、airの再起動シグナルがsh止まりになり旧プロセスが生き残る
+  full_bin = "set -a; source .env 2>/dev/null; set +a; exec ./tmp/tmuxui --dev --host 0.0.0.0"
   include_ext = ["go"]
   exclude_dir = ["tmp", "web", "docs"]
-  delay = 500
+  delay = 1000
+  send_interrupt = true
+  kill_delay = "1s"
 
 [misc]
   clean_on_exit = true

@@ -14,8 +14,7 @@ const state = {
   refreshing: false,
   autoApprove: false,
   claudeCommands: null,
-  lastActivity: {},
-  seenActivity: {},
+  pinnedSessions: [],
 };
 
 const $ = id => document.getElementById(id);
@@ -54,7 +53,6 @@ document.addEventListener('DOMContentLoaded', () => {
   connectWS();
   loadPreferences();
   loadSessions();
-  setInterval(refreshActivityLabels, 1000);
 });
 
 async function loadPreferences() {
@@ -63,8 +61,8 @@ async function loadPreferences() {
     if (prefs.theme) {
       applyTheme(prefs.theme, false);
     }
-    if (prefs.seenActivity && typeof prefs.seenActivity === 'object') {
-      state.seenActivity = prefs.seenActivity;
+    if (Array.isArray(prefs.pinnedSessions)) {
+      state.pinnedSessions = prefs.pinnedSessions.filter(n => typeof n === 'string');
     }
   } catch {}
 }

@@ -10,46 +10,42 @@ import (
 	"strings"
 )
 
-var globalActivity *ActivityTracker
 var globalPreferences *Preferences
+var globalRegistry *BackendRegistry
 
 func handleSessions(w http.ResponseWriter, r *http.Request) {
-	sessions, err := listSessions()
+	sessions, err := globalRegistry.ListSessions()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	lastActivity := globalActivity.BuildMap(sessions)
-	names := make([]string, 0, len(sessions))
-	for _, s := range sessions {
-		names = append(names, s.Name)
-	}
-	globalActivity.Cleanup(names)
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"sessions":     sessions,
-		"lastActivity": lastActivity,
+		"sessions": sessions,
 	})
 }
 
 func handlePaneContent(w http.ResponseWriter, r *http.Request) {
 	target, _ := url.PathUnescape(r.PathValue("target"))
-	if !isValidTarget(target) {
+	backend, native, err := globalRegistry.Resolve(target)
+	if err != nil {
 		http.Error(w, "invalid target", http.StatusBadRequest)
 		return
 	}
-	pc, err := capturePane(target)
+	pc, err := backend.CapturePane(native)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+	pc.Target = target
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(pc)
 }
 
 func handlePaneKeys(w http.ResponseWriter, r *http.Request) {
 	target, _ := url.PathUnescape(r.PathValue("target"))
-	if !isValidTarget(target) {
+	backend, native, err := globalRegistry.Resolve(target)
+	if err != nil {
 		http.Error(w, "invalid target", http.StatusBadRequest)
 		return
 	}
@@ -60,7 +56,7 @@ func handlePaneKeys(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := sendKeys(target, body.Keys); err != nil {
+	if err := backend.SendKeys(native, body.Keys); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -76,7 +72,12 @@ func handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid name", http.StatusBadRequest)
 		return
 	}
-	if err := newSession(body.Name, body.Dir); err != nil {
+	backend, native, err := globalRegistry.Resolve(body.Name)
+	if err != nil {
+		http.Error(w, "invalid name", http.StatusBadRequest)
+		return
+	}
+	if err := backend.NewSession(native, body.Dir); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -85,21 +86,23 @@ func handleCreateSession(w http.ResponseWriter, r *http.Request) {
 
 func handleKillSession(w http.ResponseWriter, r *http.Request) {
 	name, _ := url.PathUnescape(r.PathValue("name"))
-	if !isValidTarget(name) {
+	backend, native, err := globalRegistry.Resolve(name)
+	if err != nil {
 		http.Error(w, "invalid name", http.StatusBadRequest)
 		return
 	}
-	if err := killSession(name); err != nil {
+	if err := backend.KillSession(native); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	globalActivity.Remove(name)
+	removePinnedSession(native)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func handleRenameSession(w http.ResponseWriter, r *http.Request) {
 	oldName, _ := url.PathUnescape(r.PathValue("name"))
-	if !isValidTarget(oldName) {
+	backend, native, err := globalRegistry.Resolve(oldName)
+	if err != nil {
 		http.Error(w, "invalid name", http.StatusBadRequest)
 		return
 	}
@@ -110,17 +113,18 @@ func handleRenameSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid name", http.StatusBadRequest)
 		return
 	}
-	if err := renameSession(oldName, body.Name); err != nil {
+	if err := backend.RenameSession(native, body.Name); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	globalActivity.Rename(oldName, body.Name)
+	renamePinnedSession(native, body.Name)
 	w.WriteHeader(http.StatusNoContent)
 }
 
 func handleCreateWindow(w http.ResponseWriter, r *http.Request) {
 	name, _ := url.PathUnescape(r.PathValue("name"))
-	if !isValidTarget(name) {
+	backend, native, err := globalRegistry.Resolve(name)
+	if err != nil {
 		http.Error(w, "invalid name", http.StatusBadRequest)
 		return
 	}
@@ -131,7 +135,7 @@ func handleCreateWindow(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := newWindow(name, body.Name); err != nil {
+	if err := backend.NewWindow(native, body.Name); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -141,11 +145,12 @@ func handleCreateWindow(w http.ResponseWriter, r *http.Request) {
 func handleKillWindow(w http.ResponseWriter, r *http.Request) {
 	name, _ := url.PathUnescape(r.PathValue("name"))
 	index, _ := url.PathUnescape(r.PathValue("index"))
-	if !isValidTarget(name) || !isValidTarget(index) {
+	backend, native, err := globalRegistry.Resolve(name)
+	if err != nil || !backend.ValidTarget(index) {
 		http.Error(w, "invalid name", http.StatusBadRequest)
 		return
 	}
-	if err := killWindow(name + ":" + index); err != nil {
+	if err := backend.KillWindow(native + ":" + index); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -155,7 +160,8 @@ func handleKillWindow(w http.ResponseWriter, r *http.Request) {
 func handleRenameWindow(w http.ResponseWriter, r *http.Request) {
 	name, _ := url.PathUnescape(r.PathValue("name"))
 	index, _ := url.PathUnescape(r.PathValue("index"))
-	if !isValidTarget(name) || !isValidTarget(index) {
+	backend, native, err := globalRegistry.Resolve(name)
+	if err != nil || !backend.ValidTarget(index) {
 		http.Error(w, "invalid name", http.StatusBadRequest)
 		return
 	}
@@ -166,7 +172,7 @@ func handleRenameWindow(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid name", http.StatusBadRequest)
 		return
 	}
-	if err := renameWindow(name+":"+index, body.Name); err != nil {
+	if err := backend.RenameWindow(native+":"+index, body.Name); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -175,11 +181,12 @@ func handleRenameWindow(w http.ResponseWriter, r *http.Request) {
 
 func handleKillPane(w http.ResponseWriter, r *http.Request) {
 	target, _ := url.PathUnescape(r.PathValue("target"))
-	if !isValidTarget(target) {
+	backend, native, err := globalRegistry.Resolve(target)
+	if err != nil {
 		http.Error(w, "invalid target", http.StatusBadRequest)
 		return
 	}
-	if err := killPane(target); err != nil {
+	if err := backend.KillPane(native); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -188,7 +195,8 @@ func handleKillPane(w http.ResponseWriter, r *http.Request) {
 
 func handleSplitPane(w http.ResponseWriter, r *http.Request) {
 	target, _ := url.PathUnescape(r.PathValue("target"))
-	if !isValidTarget(target) {
+	backend, native, err := globalRegistry.Resolve(target)
+	if err != nil {
 		http.Error(w, "invalid target", http.StatusBadRequest)
 		return
 	}
@@ -196,7 +204,7 @@ func handleSplitPane(w http.ResponseWriter, r *http.Request) {
 		Horizontal bool `json:"horizontal"`
 	}
 	json.NewDecoder(r.Body).Decode(&body)
-	if err := splitPane(target, body.Horizontal); err != nil {
+	if err := backend.SplitPane(native, body.Horizontal); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}

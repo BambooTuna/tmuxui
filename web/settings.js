@@ -40,12 +40,26 @@ function updateThemeButtons() {
   }
 }
 
+// 描画エンジン切替(xterm.js / 従来)。切替はパイプラインごと入れ替わるためリロードで反映する
+function updateRendererButtons() {
+  const current = localStorage.getItem('tmuxuiXterm') === '0' ? 'classic' : 'xterm';
+  for (const btn of document.querySelectorAll('.renderer-switch-btn')) {
+    btn.classList.toggle('active', btn.dataset.rendererValue === current);
+  }
+}
+
+function applyRenderer(value) {
+  localStorage.setItem('tmuxuiXterm', value === 'classic' ? '0' : '1');
+  location.reload();
+}
+
 function showSettings() {
   state.settingsReturnView = document.getElementById('view-detail').classList.contains('active') ? 'detail' : 'sessions';
   document.getElementById('view-detail').classList.remove('active');
   document.getElementById('view-sessions').classList.remove('active');
   document.getElementById('view-settings').classList.add('active');
   updateThemeButtons();
+  updateRendererButtons();
 }
 
 // NOTE: state は app.js で定義されるグローバル変数（DOMContentLoaded 後に参照）
@@ -64,5 +78,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
   for (const btn of document.querySelectorAll('.theme-switch-btn')) {
     btn.addEventListener('click', () => applyTheme(btn.dataset.themeValue));
+  }
+  for (const btn of document.querySelectorAll('.renderer-switch-btn')) {
+    btn.addEventListener('click', () => applyRenderer(btn.dataset.rendererValue));
   }
 });

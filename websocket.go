@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"log"
 	"net/http"
@@ -42,26 +43,31 @@ var upgrader = websocket.Upgrader{
 }
 
 type WSMessage struct {
-	Type         string           `json:"type"`
-	Target       string           `json:"target,omitempty"`
-	Content      string           `json:"content,omitempty"`
-	Ts           int64            `json:"ts,omitempty"`
-	Sessions     []Session        `json:"sessions,omitempty"`
-	LastActivity map[string]int64 `json:"lastActivity,omitempty"`
-	Prompt       string           `json:"prompt,omitempty"`
-	Keys         string           `json:"keys,omitempty"`
-	Cols         int              `json:"cols,omitempty"`
-	Rows         int              `json:"rows,omitempty"`
+	Type     string    `json:"type"`
+	Target   string    `json:"target,omitempty"`
+	Content  string    `json:"content,omitempty"`
+	Data     string    `json:"data,omitempty"` // pane_snapshot/pane_outputのbase64本文
+	Ts       int64     `json:"ts,omitempty"`
+	Sessions []Session `json:"sessions,omitempty"`
+	Prompt   string    `json:"prompt,omitempty"`
+	Keys     string    `json:"keys,omitempty"`
+	Cols     int       `json:"cols,omitempty"`
+	Rows     int       `json:"rows,omitempty"`
 }
 
 type Client struct {
 	hub       *Hub
 	conn      *websocket.Conn
 	send      chan []byte // 送信側が複数存在するため close しない。終了シグナルは done で行う
-	mu        sync.Mutex
-	target    string
 	done      chan struct{}
 	closeOnce sync.Once
+	mu        sync.Mutex
+	target    string
+
+	// backend.Subscribe経由のpane_output配信を管理する。1subscriptionにつき1goroutineで直列送信する。
+	subMu   sync.Mutex
+	subGen  uint64
+	subStop func()
 }
 
 func (c *Client) close() {
@@ -87,14 +93,13 @@ type Hub struct {
 	mu          sync.RWMutex
 	clients     map[*Client]struct{}
 	prevContent map[string]string
-	activity    *ActivityTracker
+	registry    *BackendRegistry
 }
 
-func newHub(activity *ActivityTracker) *Hub {
+func newHub() *Hub {
 	return &Hub{
 		clients:     map[*Client]struct{}{},
 		prevContent: map[string]string{},
-		activity:    activity,
 	}
 }
 
@@ -108,6 +113,7 @@ func (h *Hub) unregister(c *Client) {
 	h.mu.Lock()
 	delete(h.clients, c)
 	h.mu.Unlock()
+	c.stopSubscription()
 	c.close()
 }
 
@@ -119,15 +125,16 @@ func (h *Hub) run() {
 		func() {
 			defer recoverAndLog("hub.run tick")
 			tick++
-			h.pollPanes()
-			if tick%17 == 0 {
+			// 権限検知は現行tickを3回に1回に間引く(約1秒間隔)。表示用ポーリング自体は300msのまま維持する。
+			h.pollPanes(tick%3 == 0)
+			if tick%20 == 0 {
 				h.broadcastPaneList()
 			}
 		}()
 	}
 }
 
-func (h *Hub) pollPanes() {
+func (h *Hub) pollPanes(doDetect bool) {
 	h.mu.RLock()
 	targets := map[string][]*Client{}
 	for c := range h.clients {
@@ -150,35 +157,38 @@ func (h *Hub) pollPanes() {
 	h.mu.Unlock()
 
 	for target, clients := range targets {
-		pc, err := capturePane(target)
+		backend, native, err := h.registry.Resolve(target)
 		if err != nil {
 			continue
 		}
 
-		h.mu.Lock()
-		changed := h.prevContent[target] != pc.Content
-		if changed {
-			h.prevContent[target] = pc.Content
-		}
-		h.mu.Unlock()
+		if pc, err := backend.CapturePane(native); err == nil {
+			h.mu.Lock()
+			changed := h.prevContent[target] != pc.Content
+			if changed {
+				h.prevContent[target] = pc.Content
+			}
+			h.mu.Unlock()
 
-		if !changed {
+			if changed {
+				msg, _ := json.Marshal(WSMessage{
+					Type:    "pane_content",
+					Target:  target,
+					Content: pc.Content,
+					Ts:      pc.Ts,
+				})
+				h.sendToClients(clients, msg)
+			}
+		}
+
+		if !doDetect || !backend.SupportsTextPermissionDetection() {
 			continue
 		}
-
-		if sessionName := targetToSession(target); sessionName != "" {
-			h.activity.Touch(sessionName)
+		plain, err := backend.CapturePanePlain(native)
+		if err != nil {
+			continue
 		}
-
-		msg, _ := json.Marshal(WSMessage{
-			Type:    "pane_content",
-			Target:  target,
-			Content: pc.Content,
-			Ts:      pc.Ts,
-		})
-		h.sendToClients(clients, msg)
-
-		if detected, prompt := detectPermission(pc.Content); detected {
+		if detected, prompt := detectPermission(plain); detected {
 			permMsg, _ := json.Marshal(WSMessage{
 				Type:   "permission_detected",
 				Target: target,
@@ -190,12 +200,11 @@ func (h *Hub) pollPanes() {
 }
 
 func (h *Hub) broadcastPaneList() {
-	sessions, err := listSessions()
+	sessions, err := h.registry.ListSessions()
 	if err != nil {
 		return
 	}
-	la := h.activity.BuildMap(sessions)
-	msg, _ := json.Marshal(WSMessage{Type: "pane_list", Sessions: sessions, LastActivity: la})
+	msg, _ := json.Marshal(WSMessage{Type: "pane_list", Sessions: sessions})
 
 	h.mu.RLock()
 	clients := make([]*Client, 0, len(h.clients))
@@ -227,9 +236,8 @@ func handleWS(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	hub.register(c)
 	go c.writePump()
 
-	if sessions, err := listSessions(); err == nil {
-		la := hub.activity.BuildMap(sessions)
-		if msg, err := json.Marshal(WSMessage{Type: "pane_list", Sessions: sessions, LastActivity: la}); err == nil {
+	if sessions, err := hub.registry.ListSessions(); err == nil {
+		if msg, err := json.Marshal(WSMessage{Type: "pane_list", Sessions: sessions}); err == nil {
 			c.trySend(msg)
 		}
 	}
@@ -251,42 +259,52 @@ func (c *Client) readPump() {
 		}
 		switch msg.Type {
 		case "subscribe":
-			if msg.Target != "" && !isValidTarget(msg.Target) {
+			if msg.Target != "" && !c.hub.registry.ValidTarget(msg.Target) {
 				continue
 			}
 			c.mu.Lock()
 			c.target = msg.Target
 			c.mu.Unlock()
 			if msg.Cols > 0 && msg.Rows > 0 {
-				resizePane(msg.Target, msg.Cols, msg.Rows)
+				c.hub.resize(msg.Target, msg.Cols, msg.Rows)
 			}
-			if pc, err := capturePane(msg.Target); err == nil {
-				out, _ := json.Marshal(WSMessage{
-					Type:    "pane_content",
-					Target:  msg.Target,
-					Content: pc.Content,
-					Ts:      pc.Ts,
-				})
-				c.trySend(out)
+			if backend, native, err := c.hub.registry.Resolve(msg.Target); err == nil {
+				if pc, err := backend.CapturePane(native); err == nil {
+					out, _ := json.Marshal(WSMessage{
+						Type:    "pane_content",
+						Target:  msg.Target,
+						Content: pc.Content,
+						Ts:      pc.Ts,
+					})
+					c.trySend(out)
+				}
+			}
+			if msg.Target != "" {
+				c.startSubscription(msg.Target)
+			} else {
+				c.stopSubscription()
 			}
 		case "unsubscribe":
 			c.mu.Lock()
 			c.target = ""
 			c.mu.Unlock()
+			c.stopSubscription()
 		case "resize":
-			if msg.Cols > 0 && msg.Rows > 0 && isValidTarget(msg.Target) {
-				resizePane(msg.Target, msg.Cols, msg.Rows)
+			if msg.Cols > 0 && msg.Rows > 0 && c.hub.registry.ValidTarget(msg.Target) {
+				c.hub.resize(msg.Target, msg.Cols, msg.Rows)
 			}
 		case "send_keys":
-			if !isValidTarget(msg.Target) {
+			backend, native, err := c.hub.registry.Resolve(msg.Target)
+			if err != nil {
 				continue
 			}
-			sendKeys(msg.Target, msg.Keys)
+			backend.SendKeys(native, msg.Keys)
 		case "refresh":
-			if !isValidTarget(msg.Target) {
+			backend, native, err := c.hub.registry.Resolve(msg.Target)
+			if err != nil {
 				continue
 			}
-			if pc, err := capturePane(msg.Target); err == nil {
+			if pc, err := backend.CapturePane(native); err == nil {
 				out, _ := json.Marshal(WSMessage{
 					Type:    "pane_content",
 					Target:  msg.Target,
@@ -314,9 +332,155 @@ func (c *Client) writePump() {
 	}
 }
 
-func targetToSession(target string) string {
-	if i := strings.Index(target, ":"); i >= 0 {
-		return target[:i]
+// resize はtargetをbackendに解決し、そのResizeへ委譲する。
+func (h *Hub) resize(target string, cols, rows int) {
+	if h.registry == nil {
+		return
 	}
-	return ""
+	backend, native, err := h.registry.Resolve(target)
+	if err != nil {
+		return
+	}
+	backend.Resize(native, cols, rows)
+}
+
+// stopSubscription は現在のbackend購読(あれば)を破棄する。新規subscribe/unsubscribe/切断時に呼ぶ。
+func (c *Client) stopSubscription() {
+	c.subMu.Lock()
+	c.subGen++
+	stop := c.subStop
+	c.subStop = nil
+	c.subMu.Unlock()
+	if stop != nil {
+		stop()
+	}
+}
+
+// startSubscription は既存の購読を破棄したうえで、targetに対する新しいbackend購読を開始する。
+// 1つのsubscriptionのpane_output配信は単一goroutineで直列に行い、送出順序を保証する。
+func (c *Client) startSubscription(target string) {
+	c.subMu.Lock()
+	c.subGen++
+	gen := c.subGen
+	stop := c.subStop
+	c.subStop = nil
+	c.subMu.Unlock()
+	if stop != nil {
+		stop()
+	}
+	if c.hub.registry == nil {
+		return
+	}
+	go c.runSubscription(gen, target)
+}
+
+// runSubscription は Subscribe(登録) -> Snapshot -> pane_snapshot送信 -> 以降pane_outputとして
+// 転送、の順序を守る。backend側がchanを閉じた場合(overflow)は、このsubscriptionがまだ
+// 有効(gen一致)である限りSubscribeからやり直してフルリシンクする。
+// rawTargetはクライアントに送り返す(プレフィックス付きの)target、nativeはbackend呼び出し用。
+func (c *Client) runSubscription(gen uint64, rawTarget string) {
+	backend, native, err := c.hub.registry.Resolve(rawTarget)
+	if err != nil {
+		return
+	}
+	for {
+		stream, cancel, err := backend.Subscribe(native)
+		if err != nil {
+			return
+		}
+
+		c.subMu.Lock()
+		if c.subGen != gen {
+			c.subMu.Unlock()
+			cancel()
+			return
+		}
+		c.subStop = cancel
+		c.subMu.Unlock()
+
+		// Subscribe〜Snapshotの間にバッファされたチャンクの効果はスナップショットに含まれるため、
+		// 先に捨てないと二重適用で画面が化ける
+		drainStream(stream)
+		resyncing := false
+		if snap, cols, rows, err := backend.Snapshot(native); err == nil {
+			if !c.sendDrop(snapshotMessage(rawTarget, snap, cols, rows)) {
+				resyncing = true
+			}
+		} else {
+			resyncing = true
+		}
+
+		for data := range stream {
+			if resyncing {
+				drainStream(stream)
+				snap, cols, rows, err := backend.Snapshot(native)
+				if err != nil {
+					continue
+				}
+				if !c.sendDrop(snapshotMessage(rawTarget, snap, cols, rows)) {
+					continue
+				}
+				resyncing = false
+				// 手元のdataとdrain分の効果はsnapshotに含まれるため再適用しない
+				continue
+			}
+			if !c.sendDrop(outputMessage(rawTarget, data)) {
+				// 送信チャネルが詰まった場合は溜めずに以降を捨て、次にoutboxが空いたときsnapshotから再開する
+				resyncing = true
+			}
+		}
+
+		c.subMu.Lock()
+		stillCurrent := c.subGen == gen
+		c.subMu.Unlock()
+		if !stillCurrent {
+			return
+		}
+		// streamがbackend側の都合(overflow)で閉じられた場合はここに来るので、Subscribeからやり直す
+	}
+}
+
+// drainStream はチャネルに溜まっているチャンクを非ブロッキングで読み捨てる
+func drainStream(ch <-chan []byte) {
+	for {
+		select {
+		case _, ok := <-ch:
+			if !ok {
+				return
+			}
+		default:
+			return
+		}
+	}
+}
+
+func (c *Client) sendDrop(msg []byte) bool {
+	select {
+	case c.send <- msg:
+		return true
+	default:
+		return false
+	}
+}
+
+func snapshotMessage(target string, data []byte, cols, rows int) []byte {
+	msg, _ := json.Marshal(WSMessage{
+		Type:   "pane_snapshot",
+		Target: target,
+		Data:   base64.StdEncoding.EncodeToString(data),
+		Cols:   cols,
+		Rows:   rows,
+		Ts:     time.Now().Unix(),
+	})
+	return msg
+}
+
+func outputMessage(target string, data []byte) []byte {
+	msg, _ := json.Marshal(WSMessage{
+		Type:   "pane_output",
+		Target: target,
+		Data:   base64.StdEncoding.EncodeToString(data),
+		Ts:     time.Now().Unix(),
+	})
+	return msg
 }

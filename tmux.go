@@ -17,10 +17,15 @@ func isValidTarget(s string) bool {
 
 type Pane struct {
 	Target string `json:"target"`
+	ID     string `json:"id"`
 	Title  string `json:"title"`
 	Cmd    string `json:"cmd"`
 	Size   string `json:"size"`
 	Path   string `json:"path"`
+	// Agent/AgentStatus はherdrバックエンドのみが設定する(agent種別/idle・working・blocked・done・unknown)。
+	// tmuxバックエンドでは常に空文字列のままで、後方互換性に影響しない。
+	Agent       string `json:"agent,omitempty"`
+	AgentStatus string `json:"agent_status,omitempty"`
 }
 
 type Window struct {
@@ -28,13 +33,22 @@ type Window struct {
 	ID     string `json:"id"`
 	Name   string `json:"name"`
 	Active bool   `json:"active"`
-	Panes  []Pane `json:"panes"`
+	// AgentStatus はherdrのtab.list由来のウィンドウ単位の集約状態(herdrバックエンドのみ設定)。
+	AgentStatus string `json:"agent_status,omitempty"`
+	Panes       []Pane `json:"panes"`
 }
 
 type Session struct {
-	Name     string   `json:"name"`
-	Attached bool     `json:"attached"`
-	Windows  []Window `json:"windows"`
+	Name     string `json:"name"`
+	Backend  string `json:"backend"`
+	Attached bool   `json:"attached"`
+	// DisplayName はUI表示用のラベル(herdrのworkspace.label)。空ならフロントエンドはNameにフォールバックする。
+	DisplayName string `json:"display_name,omitempty"`
+	// AgentStatus はherdrのworkspace.list由来のセッション単位の集約状態(herdrバックエンドのみ設定)。
+	AgentStatus string `json:"agent_status,omitempty"`
+	// WorktreeLabel はherdrのworktree情報から組み立てた表示用ラベル(例: "repo · branch")。
+	WorktreeLabel string   `json:"worktree_label,omitempty"`
+	Windows       []Window `json:"windows"`
 }
 
 type PaneContent struct {
@@ -70,7 +84,7 @@ func listSessions() ([]Session, error) {
 	}
 
 	paneOut, err := exec.Command("tmux", "list-panes", "-a",
-		"-F", "#{session_name}\t#{window_index}\t#{window_id}\t#{window_name}\t#{window_active}\t#{pane_index}\t#{pane_current_command}\t#{pane_width}\t#{pane_height}\t#{pane_current_path}\t#{pane_title}").Output()
+		"-F", "#{session_name}\t#{window_index}\t#{window_id}\t#{window_name}\t#{window_active}\t#{pane_index}\t#{pane_current_command}\t#{pane_width}\t#{pane_height}\t#{pane_current_path}\t#{pane_id}\t#{pane_title}").Output()
 	if err != nil {
 		return nil, err
 	}
@@ -92,19 +106,21 @@ func listSessions() ([]Session, error) {
 		if line == "" {
 			continue
 		}
-		parts := strings.SplitN(line, "\t", 11)
-		if len(parts) < 10 {
+		// pane_idを#{pane_title}の手前に挿入しているため、末尾のtitleフィールド(タブを含みうる残り全部)より前のインデックスは変わらない
+		parts := strings.SplitN(line, "\t", 12)
+		if len(parts) < 11 {
 			continue
 		}
 		sessName := parts[0]
 		winIdx, _ := strconv.Atoi(parts[1])
+		paneID := parts[10]
 		paneTitle := ""
-		if len(parts) >= 11 {
-			paneTitle = parts[10]
+		if len(parts) >= 12 {
+			paneTitle = parts[11]
 		}
 		target := fmt.Sprintf("%s:%d.%s", sessName, winIdx, parts[5])
 		size := fmt.Sprintf("%sx%s", parts[7], parts[8])
-		pane := Pane{Target: target, Title: paneTitle, Cmd: parts[6], Size: size, Path: parts[9]}
+		pane := Pane{Target: target, ID: paneID, Title: paneTitle, Cmd: parts[6], Size: size, Path: parts[9]}
 
 		key := winKey{session: sessName, index: winIdx}
 		if _, ok := winMap[key]; !ok {
@@ -152,12 +168,47 @@ func capturePane(target string) (*PaneContent, error) {
 	}, nil
 }
 
+// detectPermission用の軽量キャプチャ。可視画面のみでANSIエスケープも含めない。
+func capturePanePlain(target string) (string, error) {
+	out, err := exec.Command("tmux", "capture-pane", "-p", "-t", target).Output()
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+// sessionsWithRealClients は control-mode 以外の実クライアント(スマホ専用ではないセッション)が
+// アタッチしているセッション名の集合を返す。クライアントが1つもいない場合、tmuxは非ゼロ終了する
+// ことがあるためエラーは空集合として扱う。
+func sessionsWithRealClients() map[string]struct{} {
+	result := map[string]struct{}{}
+	out, err := exec.Command("tmux", "list-clients", "-F", "#{client_session}\t#{client_flags}").Output()
+	if err != nil {
+		return result
+	}
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" {
+			continue
+		}
+		parts := strings.SplitN(line, "\t", 2)
+		if len(parts) < 2 {
+			continue
+		}
+		if !strings.Contains(parts[1], "control-mode") {
+			result[parts[0]] = struct{}{}
+		}
+	}
+	return result
+}
+
 func resizePane(target string, cols, rows int) error {
 	return exec.Command("tmux", "resize-pane", "-t", target, "-x", strconv.Itoa(cols), "-y", strconv.Itoa(rows)).Run()
 }
 
 func newSession(name, dir string) error {
-	args := []string{"new-session", "-d", "-s", name}
+	// Claude Codeのfullscreen(alternate screen)モードではtmuxのhistoryに履歴が残らず
+	// capture-paneで遡れないため、tmuxui発のセッションはclassicレンダラーに固定する
+	args := []string{"new-session", "-d", "-s", name, "-e", "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1"}
 	if dir != "" {
 		args = append(args, "-c", dir)
 	}

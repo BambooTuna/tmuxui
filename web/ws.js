@@ -23,7 +23,7 @@ function connectWS() {
   state.ws.onopen = () => {
     setWsStatus('connected');
     if (state.currentPane) {
-      const size = calcTermSize();
+      const size = getSubscribeSize();
       wsSend({ type: 'subscribe', target: state.currentPane, ...(size || {}) });
     }
   };
@@ -48,32 +48,77 @@ function wsSend(msg) {
   return false;
 }
 
+// 設定画面の「描画エンジン」で切替可能。'0'(従来)を明示セットした場合のみ旧pane_content描画
+function xtermEnabled() {
+  return localStorage.getItem('tmuxuiXterm') !== '0';
+}
+
+function base64ToBytes(b64) {
+  return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+}
+
+function getSubscribeSize() {
+  // 古いindex.htmlキャッシュ等でterm.jsが未ロードでもsubscribeを止めない
+  if (xtermEnabled() && typeof termFit === 'function') return termFit();
+  return calcTermSize();
+}
+
+// ペインの実サイズが正: pane_listで報告されたサイズとterminalの現在サイズがずれていたら
+// (他クライアントによるリサイズや、resize要求が実クライアント優先で無視された場合など)
+// subscribeを再送してsnapshotから取り直す。サイズが一致すればそこで収束して止まる。
+let lastSizeResyncAt = 0;
+function checkPaneSizeSync() {
+  if (!xtermEnabled() || !state.currentPane || typeof termGetSize !== 'function') return;
+  const session = state.sessions.find(s => s.name === state.currentSession);
+  const win = session?.windows.find(w => w.index === state.currentWindow);
+  const pane = win?.panes.find(p => p.target === state.currentPane);
+  const m = pane && /^(\d+)x(\d+)$/.exec(pane.size);
+  if (!m) return;
+  const paneCols = parseInt(m[1], 10);
+  const paneRows = parseInt(m[2], 10);
+  const cur = termGetSize();
+  if (!cur || (cur.cols === paneCols && cur.rows === paneRows)) return;
+  const now = Date.now();
+  if (now - lastSizeResyncAt < 1000) return;
+  lastSizeResyncAt = now;
+  const size = getSubscribeSize();
+  wsSend({ type: 'subscribe', target: state.currentPane, ...(size || {}) });
+}
+
 function handleWSMessage(msg) {
   switch (msg.type) {
     case 'pane_content':
-      trackPaneActivity(msg.target);
-      if (msg.target === state.currentPane) {
+      if (!xtermEnabled() && msg.target === state.currentPane) {
         renderPaneContent(msg.content || '');
+      }
+      break;
+
+    case 'pane_snapshot':
+      if (xtermEnabled() && msg.target === state.currentPane) {
+        // ペインの実サイズが正: 書き込む前にterminalをそのサイズへ追従させる
+        if (msg.cols > 0 && msg.rows > 0) termSetSize(msg.cols, msg.rows);
+        termWriteSnapshot(base64ToBytes(msg.data));
+        stopRefreshing();
+      }
+      break;
+
+    case 'pane_output':
+      if (xtermEnabled() && msg.target === state.currentPane) {
+        termWrite(base64ToBytes(msg.data));
       }
       break;
 
     case 'pane_list':
       if (Array.isArray(msg.sessions)) {
-        trackSessionListActivity(msg.sessions);
-        if (msg.lastActivity) {
-          for (const [name, ts] of Object.entries(msg.lastActivity)) {
-            if (!state.lastActivity[name] || state.lastActivity[name] < ts * 1000) {
-              state.lastActivity[name] = ts * 1000;
-            }
-          }
-        }
+        const prevJson = JSON.stringify(state.sessions);
         state.sessions = msg.sessions;
-        if ($('view-sessions').classList.contains('active')) {
+        if ($('view-sessions').classList.contains('active') && JSON.stringify(msg.sessions) !== prevJson) {
           renderSessionList();
         }
         if (state.currentSession) {
           renderPaneTabs();
         }
+        checkPaneSizeSync();
       }
       break;
 
@@ -115,6 +160,7 @@ function calcTermSize() {
 
 let resizeTimer = null;
 window.addEventListener('resize', () => {
+  if (xtermEnabled()) return; // xterm有効時はterm.js側のResizeObserver/visualViewportが処理する
   clearTimeout(resizeTimer);
   resizeTimer = setTimeout(() => {
     if (state.currentPane) {

@@ -72,6 +72,41 @@ function populateCommandSheet() {
   }
 }
 
+// ===== スクロールキー転送 =====
+// alternate screenのTUI(Claude Code fullscreen等)は履歴がtmuxに残らず
+// divが1画面分しかない。その場合のみスワイプ/ホイールをPgUp/PgDnとして送る
+function initScrollForward() {
+  const el = $('pane-content');
+  const canScrollLocally = () => xtermEnabled()
+    ? termBufferType() === 'normal'
+    : el.scrollHeight > el.clientHeight + 4;
+  const sendPage = down => {
+    if (state.currentPane) sendKeys(state.currentPane, down ? 'NPage' : 'PPage');
+  };
+
+  let touchY = null;
+  el.addEventListener('touchstart', e => {
+    touchY = e.touches[0].clientY;
+  }, { passive: true });
+  el.addEventListener('touchmove', e => {
+    if (touchY === null || canScrollLocally()) return;
+    const dy = e.touches[0].clientY - touchY;
+    if (Math.abs(dy) < 48) return;
+    touchY = e.touches[0].clientY;
+    sendPage(dy < 0);
+  }, { passive: true });
+  el.addEventListener('touchend', () => { touchY = null; });
+
+  let wheelAcc = 0;
+  el.addEventListener('wheel', e => {
+    if (canScrollLocally()) return;
+    wheelAcc += e.deltaY;
+    if (Math.abs(wheelAcc) < 60) return;
+    sendPage(wheelAcc > 0);
+    wheelAcc = 0;
+  }, { passive: true });
+}
+
 // ===== Events =====
 function bindEvents() {
   // Back
@@ -81,9 +116,15 @@ function bindEvents() {
   $('btn-refresh').addEventListener('click', () => {
     if (!state.currentPane || state.refreshing) return;
     startRefreshing();
-    wsSend({ type: 'refresh', target: state.currentPane });
-    if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
-      loadPaneContent(state.currentPane);
+    if (xtermEnabled()) {
+      // subscribeを再送するとバックエンド側がフルリシンク(snapshot再送)してくれる
+      const size = getSubscribeSize();
+      wsSend({ type: 'subscribe', target: state.currentPane, ...(size || {}) });
+    } else {
+      wsSend({ type: 'refresh', target: state.currentPane });
+      if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+        loadPaneContent(state.currentPane);
+      }
     }
     setTimeout(stopRefreshing, 5000);
   });
@@ -120,11 +161,17 @@ function bindEvents() {
   // Filer
   $('btn-filer').addEventListener('click', toggleFiler);
   $('btn-filer-up').addEventListener('click', handleFilerUp);
+  $('btn-filer-new-md').addEventListener('click', filerCreateMd);
+  initFilerUpload();
 
   // New session
   $('btn-new-session').addEventListener('click', createSession);
 
   // Card menu actions
+  $('card-menu-pin').addEventListener('click', () => {
+    if (cardMenuTarget) togglePinSession(cardMenuTarget);
+    closeCardMenu();
+  });
   $('card-menu-rename').addEventListener('click', () => {
     if (cardMenuTarget) renameSession(cardMenuTarget);
     closeCardMenu();
@@ -160,10 +207,14 @@ function bindEvents() {
       $('sheet-categories').hidden = false;
     });
   }
+  // 連打できるようキー送信ではシートを閉じない（閉じるのは外側タップのみ）。
+  // :activeは素早いタップだと視認できないため、送信ごとにフラッシュを再生する。
   for (const btn of $('keys-sheet-overlay').querySelectorAll('.sheet-key')) {
     btn.addEventListener('click', () => {
       if (state.currentPane) sendKeys(state.currentPane, btn.dataset.keys);
-      closeSheet();
+      btn.classList.remove('key-flash');
+      void btn.offsetWidth; // reflowを挟んで連打時もアニメーションを毎回リスタートさせる
+      btn.classList.add('key-flash');
     });
   }
   for (const btn of $('keys-sheet-overlay').querySelectorAll('.sheet-cmd')) {
@@ -302,6 +353,8 @@ function bindEvents() {
     }
   });
   history.pushState(null, '');
+
+  initScrollForward();
 }
 
 // ===== Snippet Popup Menu =====

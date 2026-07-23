@@ -43,6 +43,9 @@ func newServer(token string, hub *Hub, dev bool) http.Handler {
 	mux.HandleFunc("GET /api/filer/list", handleFilerList)
 	mux.HandleFunc("GET /api/filer/read", handleFilerRead)
 	mux.HandleFunc("GET /api/filer/raw", handleFilerRaw)
+	mux.HandleFunc("GET /api/filer/download", handleFilerDownload)
+	mux.HandleFunc("POST /api/filer/create", handleFilerCreate)
+	mux.HandleFunc("POST /api/filer/upload", handleFilerUpload)
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		handleWS(hub, w, r)
 	})
@@ -53,7 +56,13 @@ func newServer(token string, hub *Hub, dev bool) http.Handler {
 			fileServer.ServeHTTP(w, r)
 		}))
 	} else {
-		mux.Handle("/", fileServer)
+		mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			// index.htmlが古いままだと?v=付きJSと食い違って画面が壊れるため、HTMLだけは必ず再検証させる
+			if r.URL.Path == "/" || r.URL.Path == "/index.html" {
+				w.Header().Set("Cache-Control", "no-cache")
+			}
+			fileServer.ServeHTTP(w, r)
+		}))
 	}
 
 	return authMiddleware(token, mux)
