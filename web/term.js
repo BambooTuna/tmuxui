@@ -92,38 +92,10 @@ function termWriteSnapshot(bytes) {
   if (!terminal) return;
   terminal.reset();
   terminal.write(bytes);
-  termSyncScrollLock();
 }
 
 function termWrite(bytes) {
-  if (!terminal) return;
-  terminal.write(bytes);
-  termSyncScrollLock();
-}
-
-// termBufferType()==='alternate'(スクロールバックが無く、input.jsのinitScrollForward()が
-// スワイプ/ホイールをPgUp/PgDn転送に回す状態)の間は、xterm.js自身の.xterm-viewportの
-// ネイティブスクロールを止める。止めないと「PC側へのページ送り」とxterm.js側の見た目上の
-// スクロールが同時に起きる二重スクロールになる(転送先には何も表示が追従しないローカルの
-// スクロールだけが残ってズレる)。通常のスクロールバックありペインでは何もしない。
-// .xterm-viewportだけでなく#pane-content自体もロック対象にする: ペインの実サイズ(サーバー側の
-// 行数)がコンテナの表示可能高さを超えるとき、#pane-content自体がoverflow-y:autoで独自に
-// スクロール可能になっており、.xterm-viewportだけ止めてもこちらが「ちょっとだけ」動いてしまう。
-// ロックはscrollTopを0(先頭)に固定するのではなく末尾へ寄せる: 固定前にscrollTop=0のままだと
-// はみ出た分(ペインの実サイズ-コンテナ高さ)だけ末尾(最新行)が常に見切れてしまうため。
-function termSyncScrollLock() {
-  if (!terminal || !terminal.element) return;
-  const viewport = terminal.element.querySelector('.xterm-viewport');
-  const container = document.getElementById('pane-content');
-  const locked = termBufferType() === 'alternate';
-  if (viewport) {
-    viewport.classList.toggle('term-scroll-locked', locked);
-    if (locked) viewport.scrollTop = viewport.scrollHeight;
-  }
-  if (container) {
-    container.classList.toggle('term-scroll-locked', locked);
-    if (locked) container.scrollTop = container.scrollHeight;
-  }
+  if (terminal) terminal.write(bytes);
 }
 
 // ペインの実サイズが正のため、ここではterminalに適用せず「画面に収まる希望サイズ」を
@@ -148,17 +120,125 @@ function termGetSize() {
   return terminal ? { cols: terminal.cols, rows: terminal.rows } : null;
 }
 
-// input.jsのinitScrollForward()がローカルスクロール可否の判定にのみ使う。alternate画面
-// バッファ(フルスクリーンTUI)はxterm.jsが自力で検知できるが、herdrバックエンド経由では
-// pane.readがモード切替シーケンス自体を運ばない(画面クリア+全量再描画で都度書き込むだけの
-// ため、\x1b[?1049h相当が来ない)ためbuffer.active.typeが常に'normal'のままになり、Claude Code
-// 等のフルスクリーンTUI(herdr側にもスクロールバックが存在しない: 実機確認済み)でスワイプしても
-// ローカルにスクロールする内容が無く「見えている範囲から出られない」。baseY===0(遡れる行が無い)
-// の場合もalternate相当として扱い、initScrollForward()側でPgUp/PgDn転送(TUI側のページ送り)に
-// フォールバックできるようにする。
 function termBufferType() {
-  if (!terminal) return 'normal';
-  const buf = terminal.buffer.active;
-  if (buf.type === 'alternate' || buf.baseY === 0) return 'alternate';
-  return 'normal';
+  return terminal ? terminal.buffer.active.type : 'normal';
 }
+
+// ===== リモートスクロールボタン =====
+// ローカルのスワイプ/ホイールは常にxterm.js自身のスクロールバックだけを動かす(#input-area/
+// input.jsには一切触れない、独立した新規UI)。PC側(herdrペインの実体、特にscrollbackを
+// 持たないalternate screenのフルスクリーンTUI)を過去に遡らせたいときは、画面右下の▲▼を
+// タップ/ドラッグしてPgUp/PgDnを明示送信する。
+function initRemoteScrollButtons() {
+  const btnUp = document.getElementById('btn-remote-scroll-up');
+  const btnDown = document.getElementById('btn-remote-scroll-down');
+  if (!btnUp || !btnDown) return;
+
+  const REMOTE_SCROLL_STEP_PX = 30;
+  const DRAG_THRESHOLD_PX = 10;
+  const HOLD_DELAY_MS = 400;
+  const HOLD_REPEAT_MS = 180;
+
+  // input-areaの実高(キーボード表示や複数行入力で変動する)にボタン位置を追従させる。
+  // input-area自体は変更禁止のため、高さを外から観測してCSS変数に流すだけ。
+  const inputArea = document.querySelector('#view-detail .input-area');
+  if (inputArea && window.ResizeObserver) {
+    new ResizeObserver(() => {
+      document.documentElement.style.setProperty('--input-area-height', inputArea.offsetHeight + 'px');
+    }).observe(inputArea);
+  }
+
+  const sendPage = down => {
+    if (state.currentPane) sendKeys(state.currentPane, down ? 'NPage' : 'PPage');
+  };
+
+  // down: このボタンがPgDn(下方向)用ならtrue。
+  // タップ=1回送信。押したまま動かさなければ長押しリピート(HOLD_DELAY_MS後からHOLD_REPEAT_MS間隔)。
+  // DRAG_THRESHOLD_PXを超えて動かしたらドラッグモードに切り替え、リピートを止めて
+  // ドラッグ量ベースの送信に一本化する(二重送信防止)。
+  const bindButton = (btn, down) => {
+    let pressing = false;
+    let dragMode = false;
+    let startY = 0;
+    let sentSteps = 0;
+    let holdTimer = 0;
+    let repeatTimer = 0;
+
+    const clearTimers = () => {
+      if (holdTimer) { clearTimeout(holdTimer); holdTimer = 0; }
+      if (repeatTimer) { clearInterval(repeatTimer); repeatTimer = 0; }
+    };
+
+    const onMove = clientY => {
+      if (!pressing) return;
+      const dy = clientY - startY;
+      if (!dragMode && Math.abs(dy) >= DRAG_THRESHOLD_PX) {
+        dragMode = true;
+        clearTimers();
+      }
+      if (!dragMode) return;
+      const progressDy = down ? dy : -dy;
+      const steps = Math.max(0, Math.floor(progressDy / REMOTE_SCROLL_STEP_PX)) + 1; // +1はタップ分
+      while (sentSteps < steps) {
+        sendPage(down);
+        sentSteps++;
+      }
+    };
+    const start = clientY => {
+      pressing = true;
+      dragMode = false;
+      startY = clientY;
+      sentSteps = 1;
+      sendPage(down); // 押した瞬間に1回送信(タップ相当)
+      clearTimers();
+      holdTimer = setTimeout(() => {
+        holdTimer = 0;
+        repeatTimer = setInterval(() => sendPage(down), HOLD_REPEAT_MS);
+      }, HOLD_DELAY_MS);
+      btn.classList.add('remote-scroll-btn-active');
+    };
+    const end = () => {
+      pressing = false;
+      dragMode = false;
+      clearTimers();
+      btn.classList.remove('remote-scroll-btn-active');
+    };
+
+    btn.addEventListener('touchstart', e => {
+      e.preventDefault();
+      start(e.touches[0].clientY);
+    }, { passive: false });
+    btn.addEventListener('touchmove', e => {
+      e.preventDefault();
+      onMove(e.touches[0].clientY);
+    }, { passive: false });
+    btn.addEventListener('touchend', e => {
+      e.preventDefault();
+      end();
+    }, { passive: false });
+    btn.addEventListener('touchcancel', end);
+    btn.addEventListener('contextmenu', e => e.preventDefault());
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) end();
+    });
+
+    // PCブラウザでの検証・操作用にmouseにも対応
+    btn.addEventListener('mousedown', e => {
+      e.preventDefault();
+      start(e.clientY);
+      const onMouseMove = ev => onMove(ev.clientY);
+      const onMouseUp = () => {
+        end();
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+      };
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
+    });
+  };
+
+  bindButton(btnUp, false);
+  bindButton(btnDown, true);
+}
+
+document.addEventListener('DOMContentLoaded', initRemoteScrollButtons);

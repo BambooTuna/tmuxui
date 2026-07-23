@@ -165,7 +165,7 @@ func (b *TmuxControlBackend) Snapshot(target string) ([]byte, int, int, error) {
 
 	args := []string{"capture-pane", "-t", target, "-p", "-e", "-J"}
 	if !altOn {
-		args = append(args, "-S", "-2000")
+		args = append(args, "-S", "-"+strconv.Itoa(snapshotHistoryLines))
 	}
 	body, err := exec.Command("tmux", args...).Output()
 	if err != nil {

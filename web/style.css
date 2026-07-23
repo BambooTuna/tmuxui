@@ -585,15 +585,47 @@ button, input, textarea {
   min-width: 100%;
 }
 
-/* term.jsのtermSyncScrollLock()が付け外しする: スクロールバックが無いペイン(alternate画面
-   バッファ相当)でinput.jsがスワイプ/ホイールをPgUp/PgDn転送に回している間、xterm.js自身の
-   ネイティブスクロールを止めて二重スクロールを防ぐ。ペインの実サイズがコンテナよりはみ出ると
-   #pane-content自体もoverflow-y:autoで独自にスクロールしてしまうため、両方をロック対象にする */
-#pane-content .xterm-viewport.term-scroll-locked {
-  overflow-y: hidden !important;
+/* ===== リモートスクロールボタン(#pane-content表示中のみ右下にフローティング) =====
+   ローカルのスワイプ/ホイールはxterm.jsのスクロールバック内だけを動かす(常にローカル)。
+   PC側(herdrペインの実体)を過去に遡らせたい場合はこの2ボタンでPgUp/PgDnを明示送信する。
+   #input-areaとは独立した要素で、位置もinput-areaの上に被らないよう浮かせている。 */
+.remote-scroll-buttons {
+  position: absolute;
+  right: calc(14px + var(--safe-right));
+  /* --input-area-height はterm.jsがResizeObserverでinput-areaの実高を反映する。
+     キーボード表示や入力欄の複数行化で高さが変わっても被らない */
+  bottom: calc(var(--input-area-height, 120px) + 12px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 40;
 }
-#pane-content.term-scroll-locked {
-  overflow-y: hidden !important;
+/* #pane-content非表示中(ファイラー表示時等)はボタンも隠す(#pane-content表示時のみ意味を持つため) */
+#pane-content[hidden] + .remote-scroll-buttons {
+  display: none;
+}
+.remote-scroll-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg2) 75%, transparent);
+  color: var(--text);
+  font-size: 16px;
+  line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  touch-action: none;
+  backdrop-filter: blur(2px);
+}
+.remote-scroll-btn:active,
+.remote-scroll-btn.remote-scroll-btn-active {
+  background: var(--accent);
+  color: var(--bg);
 }
 
 /* ===== Input Area ===== */

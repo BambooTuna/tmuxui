@@ -405,27 +405,112 @@ function agentDotHtml(status) {
   return `<span class="agent-dot agent-dot--${status}" title="${esc(AGENT_STATUS_LABELS[status])}"></span>`;
 }
 
+// セッション自身のagent_statusに加え、配下のwindow/paneにblockedがあれば
+// セッションをblocked扱いに昇格させる。「返事待ち一覧」を見落とさないためのソート/フィルタ/
+// バッジ表示の判定基準として共通で使う。
+function effectiveAgentStatus(session) {
+  if (session.agent_status === 'blocked') return 'blocked';
+  for (const win of session.windows || []) {
+    if (win.agent_status === 'blocked') return 'blocked';
+    for (const pane of win.panes || []) {
+      if (pane.agent_status === 'blocked') return 'blocked';
+    }
+  }
+  return session.agent_status || '';
+}
+
+// ===== Session List Filter =====
+// 'all' | 'blocked' | 'working'。ws.jsのpane_listメッセージでrenderSessionList()が
+// 再実行されてもフィルタ状態を保持するため、モジュールスコープの変数に持たせる(stateとは別のUI専用状態)。
+let sessionListFilter = 'all';
+
+function setSessionListFilter(filter) {
+  if (sessionListFilter === filter) return;
+  sessionListFilter = filter;
+  renderSessionList();
+}
+
+function matchesSessionFilter(session, filter) {
+  if (filter === 'blocked') return effectiveAgentStatus(session) === 'blocked';
+  if (filter === 'working') return effectiveAgentStatus(session) === 'working';
+  return true;
+}
+
+function countBlockedSessions() {
+  return state.sessions.filter(s => effectiveAgentStatus(s) === 'blocked').length;
+}
+
+function updateSessionFilterChips() {
+  const wrap = $('session-filter-chips');
+  if (!wrap) return;
+  for (const btn of wrap.querySelectorAll('.filter-chip')) {
+    btn.classList.toggle('active', btn.dataset.filter === sessionListFilter);
+  }
+  const countEl = $('filter-chip-blocked-count');
+  if (countEl) {
+    const n = countBlockedSessions();
+    countEl.textContent = ` (${n})`;
+    countEl.hidden = n === 0;
+  }
+}
+
 // ===== Rendering =====
 function isPinned(name) {
   return state.pinnedSessions.includes(name);
 }
 
-function sortedSessions() {
+// ピン留め > agent statusの重要度(blocked > working > idle > done > なし)の順。
+// 同じ重要度内はArray.prototype.sort()の安定ソート特性により従来の並び順を維持する。
+const AGENT_STATUS_SORT_PRIORITY = { blocked: 0, working: 1, idle: 2, done: 3 };
+function agentStatusSortRank(status) {
+  return status in AGENT_STATUS_SORT_PRIORITY ? AGENT_STATUS_SORT_PRIORITY[status] : 4;
+}
+
+function sortedSessions(sessions) {
+  const list = sessions || state.sessions;
   const pinOrder = new Map();
   state.pinnedSessions.forEach((n, i) => pinOrder.set(n, i));
   const pinned = [];
   const others = [];
-  for (const s of state.sessions) {
+  for (const s of list) {
     if (pinOrder.has(s.name)) pinned.push(s);
     else others.push(s);
   }
   pinned.sort((a, b) => pinOrder.get(a.name) - pinOrder.get(b.name));
+  others.sort((a, b) => agentStatusSortRank(effectiveAgentStatus(a)) - agentStatusSortRank(effectiveAgentStatus(b)));
   return [...pinned, ...others];
+}
+
+function sessionCardClasses(session, baseClass) {
+  const classes = [baseClass];
+  if (isPinned(session.name)) classes.push('session-pinned');
+  if (effectiveAgentStatus(session) === 'blocked') classes.push('session-blocked');
+  return classes.join(' ');
+}
+
+function createSessionSectionHeading(text) {
+  const h = document.createElement('div');
+  h.className = 'session-section-heading';
+  h.textContent = text;
+  return h;
+}
+
+function appendSessionSection(el, sessions, heading, showHeading) {
+  if (!sessions.length) return;
+  if (showHeading) el.appendChild(createSessionSectionHeading(heading));
+  for (const session of sortedSessions(sessions)) {
+    if (session.windows.length <= 1) {
+      el.appendChild(createSessionCard(session));
+    } else {
+      el.appendChild(createSessionGroup(session));
+    }
+  }
 }
 
 function renderSessionList() {
   const el = $('session-list');
   el.innerHTML = '';
+  updateSessionFilterChips();
 
   if (!state.sessions.length) {
     const p = document.createElement('p');
@@ -435,13 +520,23 @@ function renderSessionList() {
     return;
   }
 
-  for (const session of sortedSessions()) {
-    if (session.windows.length <= 1) {
-      el.appendChild(createSessionCard(session));
-    } else {
-      el.appendChild(createSessionGroup(session));
-    }
+  const filtered = state.sessions.filter(s => matchesSessionFilter(s, sessionListFilter));
+  if (!filtered.length) {
+    const p = document.createElement('p');
+    p.className = 'empty-state';
+    p.textContent = '該当するセッションはありません';
+    el.appendChild(p);
+    return;
   }
+
+  // herdrセクションを先、tmuxセクションを後に表示。片方のバックエンドしか
+  // 存在しない場合(フィルタ適用後の表示件数ベース)はセクション見出しを出さない。
+  const herdrSessions = filtered.filter(s => s.backend === 'herdr');
+  const tmuxSessions = filtered.filter(s => s.backend !== 'herdr');
+  const showSectionHeadings = herdrSessions.length > 0 && tmuxSessions.length > 0;
+
+  appendSessionSection(el, herdrSessions, 'Agents (herdr)', showSectionHeadings);
+  appendSessionSection(el, tmuxSessions, 'tmux セッション', showSectionHeadings);
 }
 
 function pinBadgeHtml(name) {
@@ -459,17 +554,19 @@ function createSessionCard(session) {
   const paneCount = win ? win.panes.length : 0;
   const cmd = win && win.panes.length > 0 ? win.panes[0].cmd : '';
   const card = document.createElement('div');
-  card.className = 'session-card' + (isPinned(session.name) ? ' session-pinned' : '');
+  card.className = sessionCardClasses(session, 'session-card');
   card.innerHTML =
     `<span class="session-card-main">` +
       `<span class="session-card-title">` +
         `<span class="session-card-name">${esc(sessionDisplayName(session))}</span>` +
         pinBadgeHtml(session.name) +
-        agentBadgeHtml(session.agent_status) +
+        agentBadgeHtml(effectiveAgentStatus(session)) +
       `</span>` +
-      worktreeLabelHtml(session) +
+      `<span class="session-card-sub">` +
+        `<span class="session-card-meta">${esc(cmd)} · ${paneCount} panes</span>` +
+        worktreeLabelHtml(session) +
+      `</span>` +
     `</span>` +
-    `<span class="session-card-meta">${esc(cmd)} · ${paneCount} panes</span>` +
     `<button class="btn-card-menu" aria-label="メニュー">⋯</button>`;
   card.querySelector('.btn-card-menu').addEventListener('click', e => {
     e.stopPropagation();
@@ -487,7 +584,7 @@ function createSessionGroup(session) {
   group.className = 'session-group';
 
   const header = document.createElement('div');
-  header.className = 'session-group-header' + (isPinned(session.name) ? ' session-pinned' : '');
+  header.className = sessionCardClasses(session, 'session-group-header');
   header.innerHTML =
     `<span class="toggle">${isExpanded ? '▾' : '▸'}</span>` +
     `<span class="session-card-main" style="flex:1">` +
@@ -495,7 +592,7 @@ function createSessionGroup(session) {
         `<span class="session-card-name">${esc(sessionDisplayName(session))} ` +
         `<span class="session-card-meta">(${session.windows.length}w)</span></span>` +
         pinBadgeHtml(session.name) +
-        agentBadgeHtml(session.agent_status) +
+        agentBadgeHtml(effectiveAgentStatus(session)) +
       `</span>` +
       worktreeLabelHtml(session) +
     `</span>` +
@@ -682,4 +779,16 @@ function hidePermissionBanner() {
   $('permission-banner').hidden = true;
   state.pendingPermission = null;
 }
+
+// ===== Session Filter Chips (init) =====
+// #input-area/input.jsのbindEvents()には手を加えないため、フィルタチップの
+// イベント登録はここで自前で行う(settings.jsのbtn-settings系と同じパターン)。
+document.addEventListener('DOMContentLoaded', () => {
+  const chipsEl = $('session-filter-chips');
+  if (!chipsEl) return;
+  chipsEl.querySelectorAll('.filter-chip').forEach(btn => {
+    btn.addEventListener('click', () => setSessionListFilter(btn.dataset.filter));
+  });
+  updateSessionFilterChips();
+});
 

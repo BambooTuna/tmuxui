@@ -2,12 +2,17 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
 )
+
+// snapshotHistoryLines はcapture-paneで遡る行数。tmuxui発セッションではデフォルトの
+// history-limit(2000)のままだとこの行数まで遡れないため、newSession()で同じ値まで引き上げる。
+const snapshotHistoryLines = 20000
 
 var validTarget = regexp.MustCompile(`^[a-zA-Z0-9_:.\-]+$`)
 
@@ -155,7 +160,7 @@ func listSessions() ([]Session, error) {
 }
 
 func capturePane(target string) (*PaneContent, error) {
-	out, err := exec.Command("tmux", "capture-pane", "-t", target, "-p", "-e", "-S", "-200").Output()
+	out, err := exec.Command("tmux", "capture-pane", "-t", target, "-p", "-e", "-S", "-"+strconv.Itoa(snapshotHistoryLines)).Output()
 	if err != nil {
 		return nil, err
 	}
@@ -212,7 +217,16 @@ func newSession(name, dir string) error {
 	if dir != "" {
 		args = append(args, "-c", dir)
 	}
-	return exec.Command("tmux", args...).Run()
+	if err := exec.Command("tmux", args...).Run(); err != nil {
+		return err
+	}
+	// デフォルトのhistory-limit(2000)のままだとsnapshotHistoryLines分を遡れないため、
+	// このセッションのみ引き上げる(-gはユーザーの他セッションにも影響するため使わない)。
+	// セッション自体は既に作成済みのため、ここが失敗してもエラーにはせずログのみに留める。
+	if err := exec.Command("tmux", "set-option", "-t", name, "history-limit", strconv.Itoa(snapshotHistoryLines)).Run(); err != nil {
+		log.Printf("newSession: failed to raise history-limit for %q: %v", name, err)
+	}
+	return nil
 }
 
 func killSession(name string) error {

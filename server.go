@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"encoding/json"
 	"io/fs"
 	"net/http"
 	"os"
@@ -49,6 +50,23 @@ func newServer(token string, hub *Hub, dev bool) http.Handler {
 	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		handleWS(hub, w, r)
 	})
+	// PWAの起動URLにtokenを埋め込むため動的生成(認証はauthMiddleware側で担保)
+	mux.HandleFunc("GET /manifest.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/manifest+json")
+		w.Header().Set("Cache-Control", "no-store")
+		json.NewEncoder(w).Encode(map[string]any{
+			"name":             "tmuxui",
+			"short_name":       "tmuxui",
+			"start_url":        "/?token=" + token,
+			"display":          "standalone",
+			"background_color": "#1a1a2e",
+			"theme_color":      "#1a1a2e",
+			"icons": []map[string]string{
+				{"src": "icon-192.png", "sizes": "192x192", "type": "image/png"},
+				{"src": "icon-512.png", "sizes": "512x512", "type": "image/png"},
+			},
+		})
+	})
 	fileServer := http.FileServer(http.FS(webRoot))
 	if dev {
 		mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -75,17 +93,34 @@ func withPaneNotify(hub *Hub, next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+const tokenCookieName = "tmuxui_token"
+
 func authMiddleware(validToken string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
-		if p != "/" && !strings.HasPrefix(p, "/api/") && p != "/ws" {
+		// manifest.jsonはstart_urlにtokenを埋め込むため認証必須
+		if p != "/" && !strings.HasPrefix(p, "/api/") && p != "/ws" && p != "/manifest.json" {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if r.URL.Query().Get("token") != validToken {
-			http.Error(w, "Forbidden", http.StatusForbidden)
+		if r.URL.Query().Get("token") == validToken {
+			// クエリ認証成功時にCookieを発行し、以降token無しURL(PWA起動等)でも通す
+			http.SetCookie(w, &http.Cookie{
+				Name:     tokenCookieName,
+				Value:    validToken,
+				Path:     "/",
+				MaxAge:   365 * 24 * 60 * 60,
+				HttpOnly: true,
+				SameSite: http.SameSiteLaxMode,
+				Secure:   r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https",
+			})
+			next.ServeHTTP(w, r)
 			return
 		}
-		next.ServeHTTP(w, r)
+		if c, err := r.Cookie(tokenCookieName); err == nil && c.Value == validToken {
+			next.ServeHTTP(w, r)
+			return
+		}
+		http.Error(w, "Forbidden", http.StatusForbidden)
 	})
 }

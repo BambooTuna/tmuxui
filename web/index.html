@@ -11,7 +11,7 @@
   <meta name="theme-color" content="#1a1a2e">
   <link rel="icon" type="image/png" href="icon-192.png">
   <link rel="stylesheet" href="vendor/xterm/xterm.css">
-  <link rel="stylesheet" href="style.css?v=17">
+  <link rel="stylesheet" href="style.css?v=19">
 </head>
 <body>
 
@@ -65,6 +65,11 @@
       </div>
     </nav>
     <div id="pane-content" class="pane-content"></div>
+    <!-- ===== リモートスクロールボタン(#input-areaとは独立。#pane-content表示中のみCSSで表示) ===== -->
+    <div id="remote-scroll-buttons" class="remote-scroll-buttons">
+      <button type="button" id="btn-remote-scroll-up" class="remote-scroll-btn" aria-label="上にスクロール(リモート)">&#9650;</button>
+      <button type="button" id="btn-remote-scroll-down" class="remote-scroll-btn" aria-label="下にスクロール(リモート)">&#9660;</button>
+    </div>
     <div id="filer-panel" hidden class="filer-panel">
       <div class="filer-toolbar">
         <button id="btn-filer-up" class="btn-filer-nav" aria-label="上のディレクトリ">&#8592;</button>
@@ -277,7 +282,7 @@
 
   <script src="vendor/xterm/xterm.js"></script>
   <script src="vendor/xterm/addon-fit.js"></script>
-  <script src="term.js?v=18"></script>
+  <script src="term.js?v=20"></script>
   <script src="settings.js?v=14"></script>
   <script src="app.js?v=14"></script>
   <script src="ws.js?v=14"></script>
