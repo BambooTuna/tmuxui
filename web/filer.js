@@ -413,72 +413,175 @@ function initFilerUpload() {
   });
 }
 
-async function uploadFiles(fileList) {
-  const fs = currentFilerState();
-  if (!fs) return;
-
-  const results = [];
-  for (const file of fileList) {
-    const formData = new FormData();
-    formData.append('file', file);
-    formData.append('root', fs.rootPath);
-
-    try {
-      const sep = '/api/filer/upload'.includes('?') ? '&' : '?';
-      const url = `/api/filer/upload${sep}token=${encodeURIComponent(state.token)}`;
-      const res = await fetch(url, { method: 'POST', body: formData });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      results.push(data);
-    } catch (e) {
-      results.push({ error: e.message, filename: file.name });
-    }
+// クリップボードコピー: navigator.clipboard は HTTPS/localhost 限定なので
+// 使えない場合は textarea + execCommand にフォールバックする
+function copyText(text) {
+  if (navigator.clipboard && window.isSecureContext) {
+    return navigator.clipboard.writeText(text);
   }
-
-  showUploadResults(results);
-  // ファイラーのリストを更新
-  loadFilerDir(fs.currentPath || fs.rootPath);
+  return new Promise((resolve, reject) => {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    ta.remove();
+    if (ok) resolve(); else reject(new Error('copy failed'));
+  });
 }
 
-function showUploadResults(results) {
-  const el = document.createElement('div');
+function fmtMB(bytes) {
+  return (bytes / 1048576).toFixed(1);
+}
+
+function fmtEta(sec) {
+  if (!isFinite(sec) || sec < 0) return '';
+  if (sec < 90) return Math.round(sec) + 's';
+  return Math.round(sec / 60) + 'm';
+}
+
+// fetch は送信進捗を取れないので XHR を使う
+function filerXhrUpload(file, rootPath, onProgress) {
+  return new Promise((resolve, reject) => {
+    const fd = new FormData();
+    fd.append('file', file);
+    fd.append('root', rootPath);
+    const xhr = new XMLHttpRequest();
+    const sep = '/api/filer/upload'.includes('?') ? '&' : '?';
+    xhr.open('POST', `/api/filer/upload${sep}token=${encodeURIComponent(state.token)}`);
+    xhr.upload.onprogress = e => {
+      if (e.lengthComputable) onProgress(e.loaded, e.total);
+    };
+    xhr.onload = () => {
+      let data = {};
+      try { data = JSON.parse(xhr.responseText); } catch (e) {}
+      if (xhr.status >= 200 && xhr.status < 300) resolve(data);
+      else reject(new Error(data.error || `HTTP ${xhr.status}`));
+    };
+    xhr.onerror = () => reject(new Error('接続に失敗しました'));
+    xhr.onabort = () => reject(new Error('中断されました'));
+    xhr.send(fd);
+  });
+}
+
+let filerUploadToastTimer = null;
+
+function getFilerUploadToast() {
+  let el = document.querySelector('.filer-upload-toast');
+  if (el) return el;
+
+  el = document.createElement('div');
   el.className = 'filer-upload-toast';
 
-  for (const r of results) {
-    const row = document.createElement('div');
-    row.className = 'filer-upload-result';
-    if (r.error) {
-      row.innerHTML = `<span class="filer-upload-error">${esc(r.filename)}: ${esc(r.error)}</span>`;
-    } else {
-      row.innerHTML =
-        `<span class="filer-upload-path">${esc(r.path)}</span>` +
-        `<div class="filer-upload-actions">` +
-          `<button type="button" class="filer-upload-copy">コピー</button>` +
-          `<button type="button" class="filer-upload-send">ターミナルに送信</button>` +
-        `</div>`;
-      row.querySelector('.filer-upload-copy').addEventListener('click', () => {
-        navigator.clipboard.writeText(r.path).then(() => {
-          row.querySelector('.filer-upload-copy').textContent = 'コピー済';
-          setTimeout(() => { row.querySelector('.filer-upload-copy').textContent = 'コピー'; }, 1500);
-        }).catch(() => {});
-      });
-      row.querySelector('.filer-upload-send').addEventListener('click', () => {
-        if (state.currentPane) {
-          sendKeys(state.currentPane, r.path);
-        }
-      });
-    }
-    el.appendChild(row);
-  }
-
   const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
   closeBtn.className = 'filer-upload-toast-close';
   closeBtn.textContent = '×';
   closeBtn.addEventListener('click', () => el.remove());
   el.appendChild(closeBtn);
 
   document.body.appendChild(el);
-  setTimeout(() => { if (el.parentNode) el.remove(); }, 15000);
+  return el;
+}
+
+function scheduleFilerUploadToastDismiss(el) {
+  if (filerUploadToastTimer) clearTimeout(filerUploadToastTimer);
+  filerUploadToastTimer = setTimeout(() => {
+    if (el.parentNode) el.remove();
+  }, 15000);
+}
+
+function createFilerUploadRow(filename) {
+  const row = document.createElement('div');
+  row.className = 'filer-upload-result filer-upload-progress';
+  row.innerHTML =
+    `<div class="filer-upload-name">${esc(filename)}</div>` +
+    `<div class="filer-upload-bar"><div class="filer-upload-bar-fill"></div></div>` +
+    `<div class="filer-upload-status">準備中…</div>`;
+  return {
+    el: row,
+    fill: row.querySelector('.filer-upload-bar-fill'),
+    status: row.querySelector('.filer-upload-status'),
+  };
+}
+
+function finishFilerUploadRow(row, path) {
+  row.el.className = 'filer-upload-result';
+  row.el.innerHTML =
+    `<span class="filer-upload-path">${esc(path)}</span>` +
+    `<div class="filer-upload-actions">` +
+      `<button type="button" class="filer-upload-copy">コピー</button>` +
+      `<button type="button" class="filer-upload-send">ターミナルに送信</button>` +
+    `</div>`;
+  const copyBtn = row.el.querySelector('.filer-upload-copy');
+  copyBtn.addEventListener('click', () => {
+    copyText(path).then(() => {
+      copyBtn.textContent = 'コピー済';
+      setTimeout(() => { copyBtn.textContent = 'コピー'; }, 1500);
+    }).catch(() => {
+      copyBtn.textContent = '失敗';
+      setTimeout(() => { copyBtn.textContent = 'コピー'; }, 1500);
+    });
+  });
+  row.el.querySelector('.filer-upload-send').addEventListener('click', () => {
+    if (state.currentPane) {
+      sendKeys(state.currentPane, path);
+    }
+  });
+}
+
+function errorFilerUploadRow(row, message) {
+  row.status.classList.add('filer-upload-status-err');
+  row.status.textContent = `失敗: ${message}`;
+}
+
+async function uploadFiles(fileList) {
+  const fs = currentFilerState();
+  if (!fs) return;
+
+  const toast = getFilerUploadToast();
+
+  for (const file of fileList) {
+    const row = createFilerUploadRow(file.name);
+    toast.insertBefore(row.el, toast.firstChild);
+
+    // 直近サンプルから指数移動平均で速度を出す (瞬間値だとブレが大きい)
+    let lastMs = performance.now();
+    let lastLoaded = 0;
+    let ema = 0;
+
+    try {
+      const data = await filerXhrUpload(file, fs.rootPath, (loaded, total) => {
+        const now = performance.now();
+        const dt = now - lastMs;
+        if (dt >= 250) {
+          const inst = (loaded - lastLoaded) / dt * 1000;
+          ema = ema ? ema * 0.7 + inst * 0.3 : inst;
+          lastMs = now;
+          lastLoaded = loaded;
+        }
+        const pct = total ? (loaded / total * 100) : 0;
+        row.fill.style.width = pct.toFixed(1) + '%';
+        const rate = ema ? fmtMB(ema) + ' MB/s' : '…';
+        const eta = ema && total ? fmtEta((total - loaded) / ema) : '';
+        row.status.textContent =
+          `${fmtMB(loaded)} / ${fmtMB(total)} MB (${pct.toFixed(1)}%) ${rate}` +
+          (eta ? `  残り ${eta}` : '');
+      });
+      row.fill.style.width = '100%';
+      finishFilerUploadRow(row, data.path);
+    } catch (e) {
+      errorFilerUploadRow(row, e.message);
+    }
+  }
+
+  scheduleFilerUploadToastDismiss(toast);
+  // ファイラーのリストを更新
+  loadFilerDir(fs.currentPath || fs.rootPath);
 }
 
 // セッション切替時にファイラー状態を復元/リセット

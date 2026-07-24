@@ -325,21 +325,15 @@ func handleFilerUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	root := r.FormValue("root")
-	if root == "" {
-		http.Error(w, "root required", http.StatusBadRequest)
-		return
+	// アップロード先は常に固定パス (${HOME}/.tmuxui/uploads/YYYY-MM-DD/)
+	// クライアントから渡される root/path は無視する (docker で $HOME:ro マウントした際に
+	// pane の CWD 配下へ保存できず upload が failed になる問題への対応)
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		home = os.Getenv("HOME")
 	}
-
-	// アップロード先は常に {root}/tmp
-	uploadDir := filepath.Join(filepath.Clean(root), "tmp")
-	if err := os.MkdirAll(uploadDir, 0755); err != nil {
-		http.Error(w, "cannot create upload dir", http.StatusInternalServerError)
-		return
-	}
-	dirPath, ok := safeFilerPath(uploadDir, root)
-	if !ok {
-		http.Error(w, "forbidden", http.StatusForbidden)
+	if home == "" {
+		http.Error(w, "cannot determine home directory", http.StatusInternalServerError)
 		return
 	}
 
@@ -361,17 +355,24 @@ func handleFilerUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	destPath := filepath.Join(dirPath, filename)
+	now := time.Now().Local()
+	uploadDir := filepath.Join(home, ".tmuxui", "uploads", now.Format("2006-01-02"))
+	if err := os.MkdirAll(uploadDir, 0755); err != nil {
+		http.Error(w, "cannot create upload dir", http.StatusInternalServerError)
+		return
+	}
 
-	// 同名ファイルがある場合はリネーム
+	destName := now.Format("150405") + "_" + filename
+	destPath := filepath.Join(uploadDir, destName)
+
+	// 同名ファイルがある場合はリネーム (同一秒内の複数アップロード対策)
 	if _, err := os.Stat(destPath); err == nil {
-		ext := filepath.Ext(filename)
-		base := strings.TrimSuffix(filename, ext)
+		ext := filepath.Ext(destName)
+		base := strings.TrimSuffix(destName, ext)
 		for i := 1; ; i++ {
 			candidate := fmt.Sprintf("%s_%d%s", base, i, ext)
-			destPath = filepath.Join(dirPath, candidate)
+			destPath = filepath.Join(uploadDir, candidate)
 			if _, err := os.Stat(destPath); os.IsNotExist(err) {
-				filename = candidate
 				break
 			}
 			if i > 100 {
@@ -388,7 +389,8 @@ func handleFilerUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer dst.Close()
 
-	if _, err := io.Copy(dst, file); err != nil {
+	written, err := io.Copy(dst, file)
+	if err != nil {
 		os.Remove(destPath)
 		http.Error(w, "write error", http.StatusInternalServerError)
 		return
@@ -396,8 +398,8 @@ func handleFilerUpload(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
-		"path":     destPath,
-		"filename": filename,
+		"path": destPath,
+		"size": written,
 	})
 }
 
