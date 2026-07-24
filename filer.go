@@ -220,6 +220,8 @@ var filerRawAllowed = map[string]string{
 	".m4a":  "audio/mp4",
 	".ogg":  "audio/ogg",
 	".aac":  "audio/aac",
+	".html": "text/html; charset=utf-8",
+	".htm":  "text/html; charset=utf-8",
 }
 
 const filerRawMaxSize = 50 << 20 // 50MB
@@ -440,6 +442,12 @@ func handleFilerRaw(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", mime)
 	w.Header().Set("Content-Disposition", "inline")
-	w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+	// html はプレビュー用途なので inline script/style/画像を許可する。
+	// 他形式 (画像・PDF等) は従来通り厳しい CSP を維持。
+	if ext == ".html" || ext == ".htm" {
+		w.Header().Set("Content-Security-Policy", "default-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data: https:")
+	} else {
+		w.Header().Set("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
+	}
 	http.ServeContent(w, r, filepath.Base(filePath), info.ModTime(), f)
 }

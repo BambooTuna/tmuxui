@@ -185,8 +185,22 @@ async function loadFilerFile(filePath) {
       pre.textContent = data.content;
       el.appendChild(pre);
     }
-    // ダウンロードボタン
-    el.appendChild(filerDownloadBtn(filePath));
+    // アクションボタン群 (html は「プレビュー」を追加)
+    const actions = document.createElement('div');
+    actions.className = 'filer-file-actions';
+    const ext = (filePath.match(/\.[^.]+$/) || [''])[0].toLowerCase();
+    if (ext === '.html' || ext === '.htm') {
+      const previewUrl = `/api/filer/raw?path=${encodeURIComponent(filePath)}&root=${encodeURIComponent(fs.rootPath)}&token=${encodeURIComponent(state.token)}`;
+      const previewBtn = document.createElement('a');
+      previewBtn.href = previewUrl;
+      previewBtn.target = '_blank';
+      previewBtn.rel = 'noopener noreferrer';
+      previewBtn.className = 'filer-preview-btn';
+      previewBtn.textContent = 'ブラウザでプレビュー';
+      actions.appendChild(previewBtn);
+    }
+    actions.appendChild(filerDownloadBtn(filePath));
+    el.appendChild(actions);
   } catch (e) {
     el.textContent = `(読み込み失敗: ${e.message})`;
   }
