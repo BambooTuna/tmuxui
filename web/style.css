@@ -33,7 +33,10 @@
   /* Typography */
   --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
   --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  /* term.jsはgetComputedStyle().getPropertyValue('--mono')でxtermのfontFamilyを取得するが、
+     このAPIはネストしたvar()を解決しない。--monoには必ず具体値を置き、--font-monoはalias扱い。 */
+  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --font-mono: var(--mono);
   /* Legacy aliases (既存クラスとの互換のため) */
   --bg2: var(--material-thin-bg);
   --bg3: var(--material-thick-bg);
@@ -41,7 +44,6 @@
   --success: var(--tint-done);
   --error: var(--tint-blocked);
   --warn: #ff9f0a;
-  --mono: var(--font-mono);
   /* Safe area */
   --safe-top:    env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
