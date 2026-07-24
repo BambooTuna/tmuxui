@@ -1,0 +1,16 @@
+services:
+  tmuxui:
+    image: ghcr.io/bambootuna/tmuxui:latest
+    container_name: tmuxui
+    restart: unless-stopped
+    network_mode: host
+    user: "${UID}:${GID}"
+    environment:
+      TMUXUI_TOKEN: "${TMUXUI_TOKEN}"
+      TMUXUI_AUTOUPDATE: "0"
+      HOME: "/home/tmuxui"
+    volumes:
+      - /tmp/tmux-${UID}:/tmp/tmux-${UID}
+      - ${HOME}/.config/tmuxui:/home/tmuxui/.config/tmuxui
+      # filer で見せたい範囲だけ ro でマウントする
+      - ${HOME}:/host-home:ro

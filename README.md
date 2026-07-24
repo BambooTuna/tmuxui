@@ -28,6 +28,38 @@ go install github.com/BambooTuna/tmuxui@latest
 tmuxui --help
 ```
 
+### Docker（デーモン化・自動起動向け）
+
+ホストの tmux socket をコンテナにマウントする方式。tmux server 自体はホストで動かし、コンテナ内の tmuxui はそのクライアントとして接続するだけ。systemd を直接触らずに `restart: unless-stopped` で PC 再起動後も自動起動・自動復旧させたい場合に使う。
+
+前提:
+
+- Linux ホスト（`network_mode: host` と tmux socket マウントに依存するため、macOS Docker Desktop は非サポート。macOS はネイティブ実行を推奨）
+- ホストで tmux が起動していること（tmux server はホスト側、tmuxui はコンテナ側というワンウェイ構成）
+
+`.env`（`docker-compose.example.yml` と同じディレクトリに配置）:
+
+```bash
+UID=1000
+GID=1000
+TMUXUI_TOKEN=your-secret-token
+```
+
+`docker-compose.example.yml` を `docker-compose.yml` としてコピーし、そのまま起動する:
+
+```bash
+cp docker-compose.example.yml docker-compose.yml
+docker compose up -d
+# http://127.0.0.1:6062?token=your-secret-token
+```
+
+image は `ghcr.io/bambootuna/tmuxui:latest`（GitHub Actions のリリースフローで amd64/arm64 multi-arch push 済み）。
+
+備考:
+
+- 自動アップデートは image 内で無効化されている（`TMUXUI_AUTOUPDATE=0`）。バージョン更新は `docker compose pull && docker compose up -d` で行う。
+- filer で見たいホストパスは `docker-compose.yml` の `volumes:` に明示的に追記しないと見えない（デフォルトでは compose がマウントしたパス以外はコンテナから不可視）。
+
 ## 使い方
 
 ### ローカル起動

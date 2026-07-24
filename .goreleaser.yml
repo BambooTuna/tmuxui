@@ -36,3 +36,35 @@ changelog:
     exclude:
       - "^docs:"
       - "^test:"
+
+dockers:
+  - image_templates:
+      - "ghcr.io/bambootuna/tmuxui:{{ .Version }}-amd64"
+    use: buildx
+    dockerfile: Dockerfile.release
+    goarch: amd64
+    build_flag_templates:
+      - "--platform=linux/amd64"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.source=https://github.com/BambooTuna/tmuxui"
+      - "--label=org.opencontainers.image.licenses=MIT"
+  - image_templates:
+      - "ghcr.io/bambootuna/tmuxui:{{ .Version }}-arm64"
+    use: buildx
+    dockerfile: Dockerfile.release
+    goarch: arm64
+    build_flag_templates:
+      - "--platform=linux/arm64"
+      - "--label=org.opencontainers.image.version={{ .Version }}"
+      - "--label=org.opencontainers.image.source=https://github.com/BambooTuna/tmuxui"
+      - "--label=org.opencontainers.image.licenses=MIT"
+
+docker_manifests:
+  - name_template: "ghcr.io/bambootuna/tmuxui:{{ .Version }}"
+    image_templates:
+      - "ghcr.io/bambootuna/tmuxui:{{ .Version }}-amd64"
+      - "ghcr.io/bambootuna/tmuxui:{{ .Version }}-arm64"
+  - name_template: "ghcr.io/bambootuna/tmuxui:latest"
+    image_templates:
+      - "ghcr.io/bambootuna/tmuxui:{{ .Version }}-amd64"
+      - "ghcr.io/bambootuna/tmuxui:{{ .Version }}-arm64"
