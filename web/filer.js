@@ -18,9 +18,12 @@ function getFilerState(sessionName) {
 
 function initFilerForSession(sessionName, panePath) {
   const fs = getFilerState(sessionName);
-  if (!fs.rootPath && panePath) {
+  if (panePath && fs.rootPath !== panePath) {
+    // pane が変わった (or 初回) → 現 pane の CWD にリセット
     fs.rootPath = panePath;
     fs.currentPath = panePath;
+    fs.history = [];
+    fs.viewing = 'list';
   }
 }
 
@@ -50,10 +53,9 @@ function showFilerPanel(fs) {
   document.querySelector('.input-area').hidden = true;
   $('filer-panel').hidden = false;
 
-  if (fs.viewing === 'list' && !$('filer-content').innerHTML) {
+  if (fs.viewing === 'list') {
+    // DOM が前 session/pane のまま残ってるので毎回 reload する
     loadFilerDir(fs.currentPath || fs.rootPath);
-  } else if (fs.viewing === 'list') {
-    renderFilerPath();
   }
 }
 
