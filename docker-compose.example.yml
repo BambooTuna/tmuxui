@@ -7,7 +7,6 @@ services:
     user: "${UID}:${GID}"
     environment:
       TMUXUI_TOKEN: "${TMUXUI_TOKEN}"
-      TMUXUI_AUTOUPDATE: "0"
       HOME: "/home/tmuxui"
     volumes:
       - /tmp/tmux-${UID}:/tmp/tmux-${UID}

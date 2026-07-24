@@ -57,7 +57,7 @@ image は `ghcr.io/bambootuna/tmuxui:latest`（GitHub Actions のリリースフ
 
 備考:
 
-- 自動アップデートは image 内で無効化されている（`TMUXUI_AUTOUPDATE=0`）。バージョン更新は `docker compose pull && docker compose up -d` で行う。
+- 自動アップデートは有効（設定画面からその場で適用できる）。ただし適用してもコンテナのファイルシステムを書き換えているだけなので、次回 `docker compose up -d` で image のバージョンに戻る。恒久更新は `docker compose pull && docker compose up -d`。オフにしたい場合は環境変数 `TMUXUI_AUTOUPDATE=0` を渡す。
 - filer で見たいホストパスは `docker-compose.yml` の `volumes:` に明示的に追記しないと見えない（デフォルトでは compose がマウントしたパス以外はコンテナから不可視）。
 
 ## 使い方

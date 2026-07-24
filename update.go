@@ -35,12 +35,14 @@ func newSelfUpdater() (*selfupdate.Updater, error) {
 
 // checkForUpdate は最新リリースを取得するだけで適用は行わない。
 // version == "dev" は開発ビルドとして常に「更新なし」扱い(既存挙動維持)。
-func checkForUpdate(ctx context.Context) (*selfupdate.Release, bool, error) {
-	updater, err := newSelfUpdater()
-	if err != nil {
-		return nil, false, err
+// 非semverなバージョン(ローカル手動ビルド等)でLessOrEqualが panic するのを防ぐため recover する。
+func checkForUpdate(ctx context.Context) (latest *selfupdate.Release, hasUpdate bool, err error) {
+	updater, uerr := newSelfUpdater()
+	if uerr != nil {
+		return nil, false, uerr
 	}
-	latest, found, err := updater.DetectLatest(ctx, selfupdate.ParseSlug("BambooTuna/tmuxui"))
+	var found bool
+	latest, found, err = updater.DetectLatest(ctx, selfupdate.ParseSlug("BambooTuna/tmuxui"))
 	if err != nil {
 		return nil, false, fmt.Errorf("update check failed: %w", err)
 	}
@@ -50,7 +52,12 @@ func checkForUpdate(ctx context.Context) (*selfupdate.Release, bool, error) {
 	if version == "dev" {
 		return latest, false, nil
 	}
-	hasUpdate := !latest.LessOrEqual(version)
+	defer func() {
+		if r := recover(); r != nil {
+			hasUpdate = false
+		}
+	}()
+	hasUpdate = !latest.LessOrEqual(version)
 	return latest, hasUpdate, nil
 }
 
@@ -81,12 +88,16 @@ func applyUpdate(ctx context.Context, latest *selfupdate.Release) error {
 	return nil
 }
 
-// restartSelf は現在の実行ファイルで自プロセスを execve で置換する。
-// 呼び出し元スタックはそのまま破棄されるため、呼ぶ側で必要な後処理を先に済ませておくこと。
-func restartSelf() error {
-	exe, err := selfupdate.ExecutablePath()
-	if err != nil {
-		return err
+// restartSelf は指定パスの実行ファイルで自プロセスを execve で置換する。
+// exe は applyUpdate 前に os.Executable() で取得したパスを渡すこと。apply 後は
+// /proc/self/exe が rename された古い inode(.old や" (deleted)")を指すため。
+func restartSelf(exe string) error {
+	if exe == "" {
+		var err error
+		exe, err = selfupdate.ExecutablePath()
+		if err != nil {
+			return err
+		}
 	}
 	return syscall.Exec(exe, os.Args, os.Environ())
 }
@@ -226,6 +237,8 @@ func (m *UpdateManager) ApplyNow(ctx context.Context) (UpdateStatus, error) {
 	if os.Getenv("TMUXUI_AUTOUPDATE") == "0" {
 		return UpdateStatus{Current: version, LastError: "auto-update disabled by TMUXUI_AUTOUPDATE=0"}, nil
 	}
+	// apply後は/proc/self/exeがrename済みの.oldパスを返すため、apply前に元のパスを保存する
+	exe, _ := selfupdate.ExecutablePath()
 	latest, _, err := checkForUpdate(ctx)
 	if err != nil {
 		status := m.setStatus(func(s *UpdateStatus) {
@@ -260,7 +273,7 @@ func (m *UpdateManager) ApplyNow(ctx context.Context) (UpdateStatus, error) {
 
 	go func() {
 		time.Sleep(500 * time.Millisecond)
-		if err := restartSelf(); err != nil {
+		if err := restartSelf(exe); err != nil {
 			log.Printf("update: restart failed: %v", err)
 		}
 	}()
