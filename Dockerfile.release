@@ -1,7 +1,10 @@
-FROM alpine:3.20
+FROM alpine:edge
+# tmux 3.5〜3.6.x はformat文字列内のtabを`_`にサニタイズするためlist-sessions等の
+# タブ区切りパースが壊れる。tmux 3.7以降で修正されているためedge(3.7b)を採用する。
+# LANG/LC_ALLを設定しないと3.7b含めどのバージョンでもtabがサニタイズされる。
 RUN apk add --no-cache tmux git ca-certificates
 COPY tmuxui /usr/local/bin/tmuxui
-ENV TMUXUI_AUTOUPDATE=0 HOME=/home/tmuxui
+ENV TMUXUI_AUTOUPDATE=0 HOME=/home/tmuxui LANG=C.UTF-8 LC_ALL=C.UTF-8
 RUN mkdir -p /home/tmuxui/.config/tmuxui && chmod 777 /home/tmuxui
 USER 1000:1000
 WORKDIR /home/tmuxui
