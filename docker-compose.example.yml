@@ -11,5 +11,7 @@ services:
     volumes:
       - /tmp/tmux-${UID}:/tmp/tmux-${UID}
       - ${HOME}/.config/tmuxui:/home/tmuxui/.config/tmuxui
+      # herdr連携を使うならホスト側socketを露出(herdr自体はホストで動いている前提)
+      - ${HOME}/.config/herdr/herdr.sock:/home/tmuxui/.config/herdr/herdr.sock
       # filer で見せたい範囲だけ ro でマウントする
       - ${HOME}:/host-home:ro
