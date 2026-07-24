@@ -1,16 +1,48 @@
-/* ===== Variables ===== */
+/* ===== Variables (Apple Intelligence 視覚言語) ===== */
 :root {
-  --bg:         #1a1a1a;
-  --bg2:        #242424;
-  --bg3:        #2d2d2d;
-  --text:       #e0e0e0;
-  --muted:      #888;
-  --accent:     #4dabf7;
-  --success:    #51cf66;
-  --error:      #ff6b6b;
-  --warn:       #ffa94d;
-  --border:     #333;
-  --mono:       Menlo, Monaco, 'Courier New', monospace;
+  color-scheme: dark;
+  /* Materials (Liquid Glass) */
+  --bg: #0a0a0f;
+  --surface: rgba(255, 255, 255, 0.04);
+  --material-thin-bg: rgba(28, 28, 36, 0.5);
+  --material-thick-bg: rgba(20, 20, 28, 0.7);
+  --material-blur: blur(24px) saturate(180%);
+  --material-blur-strong: blur(32px) saturate(200%);
+  /* Text (SF label hierarchy) */
+  --text: #f5f5f7;
+  --muted: rgba(235, 235, 245, 0.6);
+  --muted-2: rgba(235, 235, 245, 0.3);
+  /* Separators */
+  --separator: rgba(255, 255, 255, 0.08);
+  --separator-strong: rgba(255, 255, 255, 0.14);
+  /* Tints (Apple system colors) */
+  --accent: #0a84ff;
+  --tint-blocked: #ff453a;
+  --tint-working: #0a84ff;
+  --tint-done: #30d158;
+  --tint-idle: rgba(235, 235, 245, 0.35);
+  --tint-blocked-bg: rgba(255, 69, 58, 0.12);
+  /* Radii */
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
+  /* Motion */
+  --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
+  --transition: 0.28s var(--ease-spring);
+  /* Typography */
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  /* Legacy aliases (既存クラスとの互換のため) */
+  --bg2: var(--material-thin-bg);
+  --bg3: var(--material-thick-bg);
+  --border: var(--separator);
+  --success: var(--tint-done);
+  --error: var(--tint-blocked);
+  --warn: #ff9f0a;
+  --mono: var(--font-mono);
+  /* Safe area */
   --safe-top:    env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left:   env(safe-area-inset-left, 0px);
@@ -19,16 +51,17 @@
 
 /* ===== Pastel Theme ===== */
 [data-theme="pastel"] {
-  --bg:         #faf6f0;
-  --bg2:        #f3ece2;
-  --bg3:        #ebe3d6;
-  --text:       #4a3f35;
-  --muted:      #7a6b5a;
-  --accent:     #a25b26;
-  --success:    #3d7a3b;
-  --error:      #c24a4a;
-  --warn:       #8a6218;
-  --border:     #e0d5c7;
+  color-scheme: light;
+  --bg: #f5f5f7;
+  --surface: rgba(255, 255, 255, 0.7);
+  --material-thin-bg: rgba(255, 255, 255, 0.55);
+  --material-thick-bg: rgba(255, 255, 255, 0.75);
+  --text: #1d1d1f;
+  --muted: rgba(60, 60, 67, 0.6);
+  --muted-2: rgba(60, 60, 67, 0.3);
+  --separator: rgba(60, 60, 67, 0.12);
+  --separator-strong: rgba(60, 60, 67, 0.2);
+  --tint-blocked-bg: rgba(255, 69, 58, 0.08);
 }
 
 [data-theme="pastel"] .btn-back:active,
@@ -111,7 +144,7 @@
   padding: 14px 16px;
   background: var(--bg2);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   margin-bottom: 8px;
 }
 
@@ -129,9 +162,9 @@
   padding: 6px 14px;
   background: var(--bg3);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: var(--muted);
-  font-family: var(--mono);
+  font-family: var(--font-ui);
   font-size: 12px;
   font-weight: 600;
   cursor: pointer;
@@ -172,7 +205,7 @@ html, body {
   height: 100%;
   background: var(--bg);
   color: var(--text);
-  font-family: var(--mono);
+  font-family: var(--font-ui);
   font-size: 14px;
   -webkit-text-size-adjust: 100%;
   overflow: hidden;
@@ -204,16 +237,21 @@ button, input, textarea {
   padding-top:   calc(12px + var(--safe-top));
   padding-left:  calc(16px + var(--safe-left));
   padding-right: calc(16px + var(--safe-right));
-  background: var(--bg2);
-  border-bottom: 1px solid var(--border);
+  background: var(--material-thin-bg);
+  -webkit-backdrop-filter: var(--material-blur);
+  backdrop-filter: var(--material-blur);
+  border-bottom: 1px solid var(--separator);
   min-height: 56px;
   flex-shrink: 0;
+  position: relative;
+  z-index: 10;
 }
 
 .app-title {
+  font-family: var(--font-display);
   font-size: 20px;
   font-weight: 700;
-  color: var(--accent);
+  color: var(--text);
   flex: 1;
 }
 
@@ -234,109 +272,111 @@ button, input, textarea {
 .session-list {
   flex: 1;
   overflow-y: auto;
-  padding: 12px;
+  padding: 16px 12px;
   padding-left:   calc(12px + var(--safe-left));
   padding-right:  calc(12px + var(--safe-right));
-  padding-bottom: calc(12px + var(--safe-bottom));
+  padding-bottom: calc(16px + var(--safe-bottom));
 }
 
-/* ===== Session Filter Chips ===== */
-.session-filter-chips {
-  display: flex;
-  gap: 8px;
-  padding: 10px 12px 0;
-  padding-left:  calc(12px + var(--safe-left));
-  padding-right: calc(12px + var(--safe-right));
+/* ===== Top Segmented Tabs ===== */
+.top-tabs {
+  position: relative;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  margin: 10px 12px 0;
+  margin-left:  calc(12px + var(--safe-left));
+  margin-right: calc(12px + var(--safe-right));
+  padding: 2px;
+  background: var(--material-thick-bg);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-md);
   flex-shrink: 0;
-  overflow-x: auto;
-  -webkit-overflow-scrolling: touch;
 }
 
-.session-filter-chips::-webkit-scrollbar { display: none; }
-.session-filter-chips { scrollbar-width: none; }
+.top-tabs-indicator {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: calc(50% - 2px);
+  height: calc(100% - 4px);
+  background: var(--surface);
+  background: color-mix(in srgb, var(--text) 12%, transparent);
+  border-radius: calc(var(--radius-md) - 2px);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  transition: transform var(--transition);
+  z-index: 0;
+}
 
-.filter-chip {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-height: 44px;
-  padding: 0 14px;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: 20px;
+.top-tabs[data-active="tmux"] .top-tabs-indicator {
+  transform: translateX(100%);
+}
+
+.top-tab-btn {
+  position: relative;
+  z-index: 1;
+  min-height: 34px;
+  background: none;
+  border: none;
+  border-radius: calc(var(--radius-md) - 2px);
   color: var(--muted);
-  font-family: var(--mono);
+  font-family: var(--font-ui);
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  white-space: nowrap;
-  flex-shrink: 0;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
+  transition: color var(--transition);
 }
 
-.filter-chip:active { background: var(--bg3); }
+.top-tab-btn.active { color: var(--text); }
 
-.filter-chip.active {
-  background: var(--accent);
-  color: #fff;
-  border-color: var(--accent);
+/* ===== Space Card (herdr worktree / tmuxセッション単位) ===== */
+@keyframes card-enter {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
-.filter-chip-count {
-  font-weight: 700;
+.space-card {
+  background: var(--material-thick-bg);
+  -webkit-backdrop-filter: var(--material-blur);
+  backdrop-filter: var(--material-blur);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-xl);
+  padding: 20px;
+  margin-bottom: 16px;
+  animation: card-enter var(--transition) both;
+  transition: background var(--transition), backdrop-filter var(--transition);
 }
 
-.filter-chip[data-filter="blocked"] .filter-chip-count { color: var(--error); }
-.filter-chip[data-filter="blocked"].active .filter-chip-count { color: #fff; }
-
-/* ===== Session Section Heading (herdr/tmux分離) ===== */
-.session-section-heading {
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  margin: 14px 4px 6px;
+/* hoverはネストしたTab/Paneへのポインタでも常にこの祖先要素で発火するため、
+   scaleで全体を動かすとカードが重なって見える。tint(背景の明るさ)のみ変える */
+.space-card:hover {
+  background: color-mix(in srgb, var(--text) 4%, var(--material-thick-bg));
+  -webkit-backdrop-filter: var(--material-blur-strong);
+  backdrop-filter: var(--material-blur-strong);
 }
 
-.session-section-heading:first-child {
-  margin-top: 2px;
+.space-card--pinned { border-color: color-mix(in srgb, var(--accent) 45%, var(--separator)); }
+
+.space-card--blocked {
+  border-color: color-mix(in srgb, var(--tint-blocked) 45%, var(--separator));
 }
 
-.session-card {
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 16px 20px;
-  margin-bottom: 10px;
-  cursor: pointer;
-  min-height: 56px;
+.space-card-header {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  transition: background 0.15s;
+  gap: 8px;
 }
 
-.session-card:active {
-  background: var(--bg3);
-}
-
-.session-card-main {
+.space-card-title {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: center;
   min-width: 0;
   flex: 1;
 }
 
-.session-card-title {
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
-
-.session-card-name {
-  font-size: 16px;
+.space-card-name {
+  font-family: var(--font-display);
+  font-size: 17px;
   font-weight: 700;
   color: var(--text);
   overflow: hidden;
@@ -345,56 +385,171 @@ button, input, textarea {
   min-width: 0;
 }
 
-/* 2行目: コマンド名・ペイン数・worktreeラベルをまとめて配置するmuted色の行 */
-.session-card-sub {
-  display: flex;
+.space-pin-icon {
+  font-size: 12px;
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+
+.space-blocked-badge {
+  display: inline-flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 6px 10px;
-  margin-top: 2px;
-}
-
-.session-card-sub .session-card-meta {
-  margin-left: 0;
-}
-
-.session-worktree {
   font-size: 11px;
+  font-weight: 700;
+  color: var(--tint-blocked);
+  background: var(--tint-blocked-bg);
+  border: 1px solid color-mix(in srgb, var(--tint-blocked) 40%, transparent);
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.space-card-worktree {
+  font-family: var(--font-mono);
+  font-size: 12px;
   color: var(--muted);
+  margin-top: 4px;
+  margin-left: 15px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* ===== Agent Status Badge (herdr agent_status) ===== */
-.agent-badge {
-  display: inline-flex;
+.space-card-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+/* ===== Tab Card (window単位、常時開示) ===== */
+.tab-card {
+  position: relative;
+  background: var(--material-thin-bg);
+  border: 1px solid var(--separator);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.tab-card--blocked {
+  border-color: color-mix(in srgb, var(--tint-blocked) 35%, var(--separator));
+}
+
+.tab-card--blocked::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--tint-blocked);
+}
+
+.tab-card-header {
+  display: flex;
   align-items: center;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 2px 7px;
-  border-radius: 8px;
-  flex-shrink: 0;
-  margin-left: 8px;
-  letter-spacing: 0.3px;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--separator);
+  transition: background 0.15s;
+}
+
+.tab-card-header:hover { background: color-mix(in srgb, var(--text) 5%, transparent); }
+.tab-card-header:active { background: color-mix(in srgb, var(--text) 8%, transparent); }
+
+.tab-card-title {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.agent-badge--blocked {
-  color: var(--error);
-  background: color-mix(in srgb, var(--error) 16%, transparent);
-  border: 1px solid color-mix(in srgb, var(--error) 40%, transparent);
+.tab-card-sub {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--muted-2);
+  flex-shrink: 0;
 }
 
-.agent-badge--working {
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
+.tab-card-warn {
+  color: var(--tint-blocked);
+  font-size: 12px;
+  flex-shrink: 0;
 }
 
-.agent-badge--idle,
-.agent-badge--done {
+.tab-card-meta {
+  font-size: 11px;
+  color: var(--muted-2);
+  flex-shrink: 0;
+}
+
+.tab-card-body {
+  display: flex;
+  flex-direction: column;
+}
+
+/* ===== Pane Row ===== */
+.pane-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.pane-row + .pane-row { border-top: 1px solid var(--separator); }
+.pane-row:hover  { background: color-mix(in srgb, var(--text) 6%, transparent); }
+.pane-row:active { background: color-mix(in srgb, var(--text) 8%, transparent); }
+
+.pane-row--blocked {
+  background: var(--tint-blocked-bg);
+}
+
+.pane-row--blocked:hover,
+.pane-row--blocked:active {
+  background: color-mix(in srgb, var(--tint-blocked) 20%, var(--tint-blocked-bg));
+}
+
+.pane-row--blocked::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--tint-blocked);
+}
+
+.pane-row-cmd {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pane-row-status {
+  font-size: 11px;
   color: var(--muted);
-  background: var(--bg3);
+  flex-shrink: 0;
+}
+
+/* ===== Agent Dot (herdr agent_status) ===== */
+@keyframes agent-dot-pulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.5; }
 }
 
 .agent-dot {
@@ -402,52 +557,20 @@ button, input, textarea {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  margin-right: 6px;
+  margin-right: 8px;
   flex-shrink: 0;
 }
 
 .agent-dot--blocked {
-  background: var(--error);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--error) 25%, transparent);
+  background: var(--tint-blocked);
+  box-shadow: 0 0 0 3px var(--tint-blocked-bg);
+  animation: agent-dot-pulse 1.6s ease-in-out infinite;
 }
 
-.agent-dot--working { background: var(--accent); }
+.agent-dot--working { background: var(--tint-working); }
 
 .agent-dot--idle,
-.agent-dot--done { background: var(--muted); }
-
-.session-card-meta {
-  font-size: 12px;
-  color: var(--muted);
-  background: var(--bg3);
-  padding: 4px 10px;
-  border-radius: 12px;
-  flex-shrink: 0;
-  margin-left: 12px;
-}
-
-.session-pin-badge {
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
-  padding: 2px 6px;
-  border-radius: 8px;
-  flex-shrink: 0;
-  margin-left: 8px;
-  letter-spacing: 0.5px;
-}
-
-.session-pinned {
-  border-left: 3px solid var(--accent);
-}
-
-/* blockedは要対応の核心ユースケースのため、ピン留めより優先して左ボーダーで示す
-   (CSSの記述順で.session-pinnedより後に置き、両方付いていてもこちらが勝つようにする) */
-.session-blocked {
-  border-left: 3px solid var(--error);
-}
+.agent-dot--done { background: var(--tint-idle); }
 
 .empty-state {
   text-align: center;
@@ -467,9 +590,9 @@ button, input, textarea {
   border: none;
   color: var(--accent);
   font-size: 22px;
-  font-family: var(--mono);
+  font-family: var(--font-ui);
   cursor: pointer;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   flex-shrink: 0;
 }
 
@@ -497,7 +620,7 @@ button, input, textarea {
   color: var(--muted);
   font-size: 22px;
   cursor: pointer;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   flex-shrink: 0;
 }
 
@@ -510,9 +633,9 @@ button, input, textarea {
   padding: 6px 10px;
   background: var(--bg3);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: var(--muted);
-  font-family: var(--mono);
+  font-family: var(--font-ui);
   font-size: 10px;
   font-weight: 700;
   cursor: pointer;
@@ -522,7 +645,7 @@ button, input, textarea {
 
 .btn-toggle.active {
   background: var(--success);
-  color: #000;
+  color: #fff;
   border-color: var(--success);
 }
 
@@ -674,10 +797,10 @@ button, input, textarea {
   justify-content: center;
   background: var(--bg3);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: var(--text);
   font-size: 18px;
-  font-family: var(--mono);
+  font-family: var(--font-ui);
   cursor: pointer;
   flex-shrink: 0;
   transition: background 0.15s, border-color 0.15s;
@@ -734,7 +857,7 @@ button, input, textarea {
   padding: 10px 12px;
   background: var(--bg);
   border: 2px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: var(--text);
   font-family: var(--mono);
   font-size: 16px;
@@ -747,7 +870,7 @@ button, input, textarea {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
   border-color: var(--accent);
-  background-color: rgba(77, 171, 247, 0.05);
+  background-color: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
 /* ===== Command Suggest ===== */
@@ -762,7 +885,7 @@ button, input, textarea {
   right: 0;
   background: var(--bg2);
   border: 1px solid var(--border);
-  border-radius: 8px 8px 0 0;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   max-height: 60vh;
   overflow-y: auto;
   z-index: 50;
@@ -779,7 +902,7 @@ button, input, textarea {
   border: none;
   border-bottom: 1px solid var(--border);
   color: var(--text);
-  font-family: var(--mono);
+  font-family: var(--font-ui);
   font-size: 13px;
   text-align: left;
   cursor: pointer;
@@ -789,6 +912,7 @@ button, input, textarea {
 .cmd-suggest-item:active { background: var(--bg3); }
 
 .cmd-suggest-cmd {
+  font-family: var(--font-mono);
   font-weight: 700;
   flex-shrink: 0;
   min-width: 130px;
@@ -807,9 +931,9 @@ button, input, textarea {
   padding: 0 12px;
   background: var(--accent);
   border: none;
-  border-radius: 8px;
-  color: #000;
-  font-family: var(--mono);
+  border-radius: var(--radius-sm);
+  color: #fff;
+  font-family: var(--font-ui);
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
@@ -834,7 +958,7 @@ button, input, textarea {
   padding: 8px 16px;
   padding-left:  calc(16px + var(--safe-left));
   padding-right: calc(16px + var(--safe-right));
-  background: #2b1a00;
+  background: color-mix(in srgb, var(--warn) 16%, var(--material-thick-bg));
   border-bottom: 2px solid var(--warn);
   flex-shrink: 0;
 }
@@ -860,7 +984,7 @@ button, input, textarea {
   font-size: 22px;
   cursor: pointer;
   flex-shrink: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 .btn-perm-dismiss:active { background: rgba(255,255,255,0.08); }
@@ -954,7 +1078,7 @@ button, input, textarea {
   padding: 10px;
   background: var(--bg3);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: var(--text);
   font-size: 13px;
   cursor: pointer;
@@ -1013,7 +1137,7 @@ button, input, textarea {
   font-size: 18px;
   cursor: pointer;
   flex-shrink: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
 }
 
 .drawer-item-close:active { background: rgba(255,255,255,0.08); }
@@ -1038,7 +1162,7 @@ button, input, textarea {
   background: var(--bg2);
   border: none;
   border-top: 1px solid var(--border);
-  border-radius: 16px 16px 0 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   padding: 8px 16px;
   padding-bottom: calc(16px + var(--safe-bottom));
   width: 100%;
@@ -1056,9 +1180,9 @@ button, input, textarea {
   padding: 10px 12px;
   background: var(--bg);
   border: 2px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: var(--text);
-  font-family: var(--mono);
+  font-family: var(--font-ui);
   font-size: 16px;
   margin-bottom: 16px;
 }
@@ -1077,8 +1201,8 @@ button, input, textarea {
   flex: 1;
   min-height: 44px;
   border: none;
-  border-radius: 8px;
-  font-family: var(--mono);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-ui);
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
@@ -1093,7 +1217,7 @@ button, input, textarea {
 
 .modal-btn-ok {
   background: var(--accent);
-  color: #000;
+  color: #fff;
 }
 
 /* ===== Action Sheet ===== */
@@ -1109,9 +1233,9 @@ button, input, textarea {
   padding: 14px 12px;
   background: var(--bg3);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   color: var(--text);
-  font-family: var(--mono);
+  font-family: var(--font-ui);
   font-size: 14px;
   text-align: center;
   cursor: pointer;
@@ -1135,7 +1259,7 @@ button, input, textarea {
   width: 100%;
   background: var(--bg2);
   border-top: 1px solid var(--border);
-  border-radius: 16px 16px 0 0;
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
   padding: 8px 16px;
   padding-bottom: calc(16px + var(--safe-bottom));
 }
@@ -1162,7 +1286,7 @@ button, input, textarea {
   padding: 14px 8px;
   background: var(--bg3);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   cursor: pointer;
 }
 
@@ -1190,13 +1314,13 @@ button, input, textarea {
 .sheet-key-icon {
   font-size: 20px;
   color: var(--text);
-  font-family: var(--mono);
+  font-family: var(--font-ui);
 }
 
 .sheet-key-label {
   font-size: 11px;
   color: var(--muted);
-  font-family: var(--mono);
+  font-family: var(--font-ui);
 }
 
 /* ===== Sheet Category ===== */
@@ -1208,7 +1332,7 @@ button, input, textarea {
   padding: 14px 8px;
   background: var(--bg3);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   cursor: pointer;
 }
 .sheet-category:active { background: rgba(255,255,255,0.1); }
@@ -1224,7 +1348,7 @@ button, input, textarea {
   border: none;
   border-bottom: 1px solid var(--border);
   color: var(--accent);
-  font-family: var(--mono);
+  font-family: var(--font-ui);
   font-size: 14px;
   text-align: left;
   cursor: pointer;
@@ -1245,7 +1369,7 @@ button, input, textarea {
   padding: 14px 12px;
   background: var(--bg3);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   color: var(--text);
   font-family: var(--mono);
   font-size: 14px;
@@ -1272,7 +1396,7 @@ button, input, textarea {
   color: var(--muted);
   font-size: 18px;
   cursor: pointer;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   flex-shrink: 0;
   margin-left: 8px;
 }
@@ -1293,9 +1417,9 @@ button, input, textarea {
   margin-bottom: 10px;
   background: var(--bg3);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   color: var(--accent);
-  font-family: var(--mono);
+  font-family: var(--font-ui);
   font-size: 14px;
   font-weight: 700;
   text-align: left;
@@ -1332,7 +1456,7 @@ button, input, textarea {
   margin-bottom: 16px;
   background: var(--bg);
   border: 2px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   color: var(--text);
   font-family: var(--mono);
   font-size: 16px;
@@ -1344,38 +1468,6 @@ button, input, textarea {
   border-color: var(--accent);
 }
 
-/* ===== Session Group (複数Window) ===== */
-.session-group { margin-bottom: 8px; }
-
-.session-group-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 12px 16px;
-  color: var(--text);
-  cursor: pointer;
-  user-select: none;
-}
-
-.session-group-header .toggle { color: var(--muted); width: 16px; }
-.session-group-body { padding-left: 12px; }
-
-/* ===== Window Card (グループ内) ===== */
-.window-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 10px 16px;
-  margin: 2px 0;
-  background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-.window-card:active { background: var(--bg3); }
-.window-card-name { font-family: var(--mono); font-size: 14px; }
-.window-card-meta { font-size: 12px; color: var(--muted); }
 
 /* ===== Breadcrumb ===== */
 .breadcrumb-session { font-size: 12px; color: var(--muted); }
@@ -1401,7 +1493,7 @@ button, input, textarea {
   padding: 14px 16px;
   background: var(--bg3);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   color: var(--text);
   font-family: var(--mono);
   font-size: 14px;
@@ -1458,7 +1550,7 @@ button, input, textarea {
   justify-content: center;
   background: var(--bg3);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   color: var(--accent);
   font-size: 16px;
   cursor: pointer;
@@ -1547,14 +1639,14 @@ button, input, textarea {
 .btn-filer.active {
   color: var(--accent);
   background: rgba(79, 195, 247, 0.15);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
 }
 
 /* ===== Filer Git Badge ===== */
 .filer-git-badge {
   font-size: 10px;
   padding: 1px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   flex-shrink: 0;
   font-family: var(--mono);
   background: var(--bg3);
@@ -1570,7 +1662,7 @@ button, input, textarea {
 .filer-image-preview {
   max-width: 100%;
   height: auto;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   display: block;
   margin: 12px auto;
 }
@@ -1597,8 +1689,8 @@ button, input, textarea {
   display: inline-block;
   padding: 10px 24px;
   background: var(--accent);
-  color: #000;
-  border-radius: 8px;
+  color: #fff;
+  border-radius: var(--radius-sm);
   text-decoration: none;
   font-weight: 600;
   font-size: 15px;
@@ -1610,7 +1702,7 @@ button, input, textarea {
 .filer-video-preview {
   width: 100%;
   max-height: 70vh;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   display: block;
   margin: 12px auto;
   background: #000;
@@ -1639,7 +1731,7 @@ button, input, textarea {
   margin: 16px auto;
   background: var(--bg3);
   color: var(--accent);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   font-size: 14px;
   font-weight: 600;
   text-decoration: none;
@@ -1662,16 +1754,16 @@ button, input, textarea {
 .filer-create-input {
   background: var(--bg2);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   color: var(--text);
   padding: 10px 12px;
   font-size: 14px;
-  font-family: var(--mono);
+  font-family: var(--font-ui);
 }
 .filer-create-textarea {
   background: var(--bg2);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   color: var(--text);
   padding: 10px 12px;
   font-size: 13px;
@@ -1690,16 +1782,16 @@ button, input, textarea {
   background: var(--bg3);
   color: var(--muted);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 14px;
   cursor: pointer;
 }
 .filer-create-save {
   padding: 8px 16px;
   background: var(--accent);
-  color: #000;
+  color: #fff;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   font-size: 14px;
   font-weight: 600;
   cursor: pointer;
@@ -1710,7 +1802,7 @@ button, input, textarea {
 .filer-dragover {
   outline: 2px dashed var(--accent);
   outline-offset: -4px;
-  background: rgba(77, 171, 247, 0.05);
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
 }
 
 .filer-upload-toast {
@@ -1720,7 +1812,7 @@ button, input, textarea {
   right: 16px;
   background: var(--bg2);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   padding: 12px 14px;
   z-index: 500;
   box-shadow: 0 4px 20px rgba(0,0,0,0.3);
@@ -1754,11 +1846,11 @@ button, input, textarea {
 .filer-upload-send {
   padding: 6px 12px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--bg3);
   color: var(--accent);
   font-size: 12px;
-  font-family: var(--mono);
+  font-family: var(--font-ui);
   cursor: pointer;
 }
 .filer-upload-copy:active,

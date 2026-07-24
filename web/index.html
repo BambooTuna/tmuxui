@@ -11,7 +11,7 @@
   <meta name="theme-color" content="#1a1a2e">
   <link rel="icon" type="image/png" href="icon-192.png">
   <link rel="stylesheet" href="vendor/xterm/xterm.css">
-  <link rel="stylesheet" href="style.css?v=20">
+  <link rel="stylesheet" href="style.css?v=21">
 </head>
 <body>
 
@@ -23,10 +23,10 @@
       <button id="btn-settings" class="btn-icon" aria-label="設定">&#9881;</button>
       <span id="ws-dot" class="ws-dot"></span>
     </header>
-    <div id="session-filter-chips" class="session-filter-chips">
-      <button type="button" class="filter-chip" data-filter="all">すべて</button>
-      <button type="button" class="filter-chip" data-filter="blocked">⚠ 要対応<span id="filter-chip-blocked-count" class="filter-chip-count" hidden></span></button>
-      <button type="button" class="filter-chip" data-filter="working">作業中</button>
+    <div id="top-tabs" class="top-tabs" data-active="herdr">
+      <button type="button" class="top-tab-btn" data-tab="herdr">herdr</button>
+      <button type="button" class="top-tab-btn" data-tab="tmux">tmux</button>
+      <span class="top-tabs-indicator"></span>
     </div>
     <main id="session-list" class="session-list"></main>
   </div>

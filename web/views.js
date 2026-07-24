@@ -201,7 +201,20 @@ async function loadSessions() {
     const data = await apiFetch('/api/sessions');
     state.sessions = data.sessions || [];
   } catch {}
+  autoSelectTopTab();
   renderSessionList();
+}
+
+// 現在選択中のバックエンドタブに該当セッションが1件もなく、もう片方に1件以上ある場合は
+// 自動的にそちらへ寄せる(空のタブを見せ続けない)。localStorageには保存しない(一時的な救済のみ)。
+function autoSelectTopTab() {
+  const herdrCount = state.sessions.filter(s => s.backend === 'herdr').length;
+  const tmuxCount = state.sessions.length - herdrCount;
+  if (state.currentTopTab === 'herdr' && herdrCount === 0 && tmuxCount > 0) {
+    state.currentTopTab = 'tmux';
+  } else if (state.currentTopTab === 'tmux' && tmuxCount === 0 && herdrCount > 0) {
+    state.currentTopTab = 'herdr';
+  }
 }
 
 async function loadPaneContent(target) {
@@ -387,16 +400,19 @@ function paneLabels(panes) {
 // unknown(agentが紐付いていないペイン/ウィンドウ/セッション)はバッジを出さない。
 const AGENT_STATUS_LABELS = { blocked: '⚠ 要対応', working: '作業中', idle: '待機', done: '完了' };
 
+// herdrのdisplay_name(workspace.label)は未設定だと空/数字のみのことがあり、
+// そのまま出すと読みにくい。その場合はUUIDそのまま(session.name)ではなく、
+// 末尾6文字だけを使った"Workspace xxxxxx"にフォールバックする。
+// tmuxセッション(backend!=='herdr')はdisplay_name自体を持たないため従来通りsession.nameを使う。
 function sessionDisplayName(session) {
-  return (session && session.display_name) || (session ? session.name : '');
-}
-
-// agent_statusを一目で分かる小さなバッジHTMLに変換する。blockedはこのプロダクトの核心
-// ユースケース(モバイルでの「返事待ち一覧」)のため目立つ配色にする。
-function agentBadgeHtml(status) {
-  const label = AGENT_STATUS_LABELS[status];
-  if (!label) return '';
-  return `<span class="agent-badge agent-badge--${status}">${label}</span>`;
+  if (!session) return '';
+  const name = session.display_name;
+  const meaningful = name && String(name).trim() !== '' && !/^\d+$/.test(String(name).trim());
+  if (meaningful) return name;
+  if (session.backend === 'herdr') {
+    return `Workspace ${String(session.name).slice(-6)}`;
+  }
+  return session.name || '';
 }
 
 // 一覧の行/タブ用の省スペースなドット表示。
@@ -417,41 +433,6 @@ function effectiveAgentStatus(session) {
     }
   }
   return session.agent_status || '';
-}
-
-// ===== Session List Filter =====
-// 'all' | 'blocked' | 'working'。ws.jsのpane_listメッセージでrenderSessionList()が
-// 再実行されてもフィルタ状態を保持するため、モジュールスコープの変数に持たせる(stateとは別のUI専用状態)。
-let sessionListFilter = 'all';
-
-function setSessionListFilter(filter) {
-  if (sessionListFilter === filter) return;
-  sessionListFilter = filter;
-  renderSessionList();
-}
-
-function matchesSessionFilter(session, filter) {
-  if (filter === 'blocked') return effectiveAgentStatus(session) === 'blocked';
-  if (filter === 'working') return effectiveAgentStatus(session) === 'working';
-  return true;
-}
-
-function countBlockedSessions() {
-  return state.sessions.filter(s => effectiveAgentStatus(s) === 'blocked').length;
-}
-
-function updateSessionFilterChips() {
-  const wrap = $('session-filter-chips');
-  if (!wrap) return;
-  for (const btn of wrap.querySelectorAll('.filter-chip')) {
-    btn.classList.toggle('active', btn.dataset.filter === sessionListFilter);
-  }
-  const countEl = $('filter-chip-blocked-count');
-  if (countEl) {
-    const n = countBlockedSessions();
-    countEl.textContent = ` (${n})`;
-    countEl.hidden = n === 0;
-  }
 }
 
 // ===== Rendering =====
@@ -481,150 +462,154 @@ function sortedSessions(sessions) {
   return [...pinned, ...others];
 }
 
-function sessionCardClasses(session, baseClass) {
-  const classes = [baseClass];
-  if (isPinned(session.name)) classes.push('session-pinned');
-  if (effectiveAgentStatus(session) === 'blocked') classes.push('session-blocked');
-  return classes.join(' ');
+function emptyState(el, text) {
+  const p = document.createElement('p');
+  p.className = 'empty-state';
+  p.textContent = text;
+  el.appendChild(p);
 }
 
-function createSessionSectionHeading(text) {
-  const h = document.createElement('div');
-  h.className = 'session-section-heading';
-  h.textContent = text;
-  return h;
-}
-
-function appendSessionSection(el, sessions, heading, showHeading) {
-  if (!sessions.length) return;
-  if (showHeading) el.appendChild(createSessionSectionHeading(heading));
-  for (const session of sortedSessions(sessions)) {
-    if (session.windows.length <= 1) {
-      el.appendChild(createSessionCard(session));
-    } else {
-      el.appendChild(createSessionGroup(session));
+// セッション配下の全paneのうちagent_status===blockedの件数。Spaceカードの⚠バッジ件数と
+// Tabカードの左アクセントバー要否判定の両方に使う共通集計。
+function countBlockedPanes(session) {
+  let n = 0;
+  for (const win of session.windows || []) {
+    for (const pane of win.panes || []) {
+      if (pane.agent_status === 'blocked') n++;
     }
+  }
+  return n;
+}
+
+// ===== Top Tabs (herdr / tmux) =====
+function setTopTab(tab) {
+  if (tab !== 'herdr' && tab !== 'tmux') return;
+  if (state.currentTopTab === tab) return;
+  state.currentTopTab = tab;
+  try { localStorage.setItem('tmuxui.topTab', tab); } catch {}
+  renderSessionList();
+}
+
+function renderTopTabs() {
+  const wrap = $('top-tabs');
+  if (!wrap) return;
+  wrap.dataset.active = state.currentTopTab;
+  for (const btn of wrap.querySelectorAll('.top-tab-btn')) {
+    btn.classList.toggle('active', btn.dataset.tab === state.currentTopTab);
   }
 }
 
 function renderSessionList() {
+  renderTopTabs();
   const el = $('session-list');
   el.innerHTML = '';
-  updateSessionFilterChips();
 
   if (!state.sessions.length) {
-    const p = document.createElement('p');
-    p.className = 'empty-state';
-    p.textContent = 'セッションがありません';
-    el.appendChild(p);
+    emptyState(el, 'セッションがありません');
     return;
   }
 
-  const filtered = state.sessions.filter(s => matchesSessionFilter(s, sessionListFilter));
-  if (!filtered.length) {
-    const p = document.createElement('p');
-    p.className = 'empty-state';
-    p.textContent = '該当するセッションはありません';
-    el.appendChild(p);
+  const list = state.sessions.filter(s => (state.currentTopTab === 'herdr') === (s.backend === 'herdr'));
+  if (!list.length) {
+    emptyState(el, state.currentTopTab === 'herdr' ? 'herdr セッションがありません' : 'tmux セッションがありません');
     return;
   }
 
-  // herdrセクションを先、tmuxセクションを後に表示。片方のバックエンドしか
-  // 存在しない場合(フィルタ適用後の表示件数ベース)はセクション見出しを出さない。
-  const herdrSessions = filtered.filter(s => s.backend === 'herdr');
-  const tmuxSessions = filtered.filter(s => s.backend !== 'herdr');
-  const showSectionHeadings = herdrSessions.length > 0 && tmuxSessions.length > 0;
-
-  appendSessionSection(el, herdrSessions, 'Agents (herdr)', showSectionHeadings);
-  appendSessionSection(el, tmuxSessions, 'tmux セッション', showSectionHeadings);
+  for (const session of sortedSessions(list)) {
+    el.appendChild(createSpaceCard(session));
+  }
 }
 
-function pinBadgeHtml(name) {
-  return isPinned(name) ? `<span class="session-pin-badge" aria-label="ピン留め">ピン</span>` : '';
-}
-
-function worktreeLabelHtml(session) {
-  return session.worktree_label
-    ? `<span class="session-worktree">${esc(session.worktree_label)}</span>`
-    : '';
-}
-
-function createSessionCard(session) {
-  const win = session.windows[0];
-  const paneCount = win ? win.panes.length : 0;
-  const cmd = win && win.panes.length > 0 ? win.panes[0].cmd : '';
+// ===== Space Card (herdr worktree / tmuxセッション単位) =====
+function createSpaceCard(session) {
+  const blockedCount = countBlockedPanes(session);
   const card = document.createElement('div');
-  card.className = sessionCardClasses(session, 'session-card');
-  card.innerHTML =
-    `<span class="session-card-main">` +
-      `<span class="session-card-title">` +
-        `<span class="session-card-name">${esc(sessionDisplayName(session))}</span>` +
-        pinBadgeHtml(session.name) +
-        agentBadgeHtml(effectiveAgentStatus(session)) +
-      `</span>` +
-      `<span class="session-card-sub">` +
-        `<span class="session-card-meta">${esc(cmd)} · ${paneCount} panes</span>` +
-        worktreeLabelHtml(session) +
-      `</span>` +
-    `</span>` +
-    `<button class="btn-card-menu" aria-label="メニュー">⋯</button>`;
-  card.querySelector('.btn-card-menu').addEventListener('click', e => {
-    e.stopPropagation();
-    openCardMenu(session.name);
-  });
-  card.addEventListener('click', () => {
-    if (win) showWindowDetail(session.name, win.index);
-  });
-  return card;
-}
-
-function createSessionGroup(session) {
-  const isExpanded = !!state.expandedSessions[session.name];
-  const group = document.createElement('div');
-  group.className = 'session-group';
+  card.className = 'space-card' +
+    (isPinned(session.name) ? ' space-card--pinned' : '') +
+    (blockedCount > 0 ? ' space-card--blocked' : '');
 
   const header = document.createElement('div');
-  header.className = sessionCardClasses(session, 'session-group-header');
+  header.className = 'space-card-header';
   header.innerHTML =
-    `<span class="toggle">${isExpanded ? '▾' : '▸'}</span>` +
-    `<span class="session-card-main" style="flex:1">` +
-      `<span class="session-card-title">` +
-        `<span class="session-card-name">${esc(sessionDisplayName(session))} ` +
-        `<span class="session-card-meta">(${session.windows.length}w)</span></span>` +
-        pinBadgeHtml(session.name) +
-        agentBadgeHtml(effectiveAgentStatus(session)) +
-      `</span>` +
-      worktreeLabelHtml(session) +
+    `<span class="space-card-title">` +
+      agentDotHtml(effectiveAgentStatus(session)) +
+      `<span class="space-card-name">${esc(sessionDisplayName(session))}</span>` +
+      (isPinned(session.name) ? `<span class="space-pin-icon" aria-label="ピン留め">&#128204;</span>` : '') +
     `</span>` +
-    `<button class="btn-card-menu" aria-label="メニュー">⋯</button>`;
-
+    (blockedCount > 0 ? `<span class="space-blocked-badge">&#9888; ${blockedCount}</span>` : '') +
+    `<button type="button" class="btn-card-menu" aria-label="メニュー">⋯</button>`;
   header.querySelector('.btn-card-menu').addEventListener('click', e => {
     e.stopPropagation();
     openCardMenu(session.name);
   });
-  header.addEventListener('click', () => {
-    state.expandedSessions[session.name] = !state.expandedSessions[session.name];
-    renderSessionList();
-  });
-  group.appendChild(header);
+  card.appendChild(header);
 
-  if (isExpanded) {
-    const body = document.createElement('div');
-    body.className = 'session-group-body';
-    for (const win of session.windows) {
-      const card = document.createElement('div');
-      card.className = 'window-card';
-      const cmd = win.panes.length > 0 ? win.panes[0].cmd : '';
-      card.innerHTML =
-        `<span class="window-card-name">${agentDotHtml(win.agent_status)}${esc(win.index + ':' + win.name)}</span>` +
-        `<span class="window-card-meta">${esc(cmd)} · ${win.panes.length} panes</span>`;
-      card.addEventListener('click', () => showWindowDetail(session.name, win.index));
-      body.appendChild(card);
-    }
-    group.appendChild(body);
+  if (session.worktree_label) {
+    const wt = document.createElement('div');
+    wt.className = 'space-card-worktree';
+    wt.textContent = session.worktree_label;
+    card.appendChild(wt);
   }
 
-  return group;
+  const tabs = document.createElement('div');
+  tabs.className = 'space-card-tabs';
+  for (const win of session.windows || []) {
+    tabs.appendChild(createTabCard(session, win));
+  }
+  card.appendChild(tabs);
+
+  return card;
+}
+
+// ===== Tab Card (window単位、常時開示) =====
+// win.name(herdrのtab.Label)はユーザー未設定だと空文字/数字のみのことが多く、
+// "17:2"のような意味不明な表示になってしまう。名前が実質的な意味を持つ場合だけ
+// それを主役にし、そうでなければ"Tab {index}"を主役にしてindex由来のsubラベルは省略する。
+function createTabCard(session, win) {
+  const blocked = (win.panes || []).some(p => p.agent_status === 'blocked');
+  const card = document.createElement('div');
+  card.className = 'tab-card' + (blocked ? ' tab-card--blocked' : '');
+
+  const rawName = String(win.name || '').trim();
+  const hasMeaningfulName = rawName !== '' && !/^\d+$/.test(rawName) && rawName !== String(win.index);
+  const titleText = hasMeaningfulName ? rawName : `Tab ${win.index}`;
+  const subText = hasMeaningfulName ? `Tab ${win.index}` : '';
+
+  const header = document.createElement('div');
+  header.className = 'tab-card-header';
+  header.innerHTML =
+    `<span class="tab-card-title">${esc(titleText)}</span>` +
+    (subText ? `<span class="tab-card-sub">${esc(subText)}</span>` : '') +
+    (blocked ? `<span class="tab-card-warn" aria-hidden="true">&#9888;</span>` : '') +
+    `<span class="tab-card-meta">${(win.panes || []).length} panes</span>`;
+  header.addEventListener('click', () => showWindowDetail(session.name, win.index));
+  card.appendChild(header);
+
+  const body = document.createElement('div');
+  body.className = 'tab-card-body';
+  for (const pane of win.panes || []) {
+    body.appendChild(createPaneRow(session, win, pane));
+  }
+  card.appendChild(body);
+
+  return card;
+}
+
+// ===== Pane Row =====
+function createPaneRow(session, win, pane) {
+  const blocked = pane.agent_status === 'blocked';
+  const label = AGENT_STATUS_LABELS[pane.agent_status] || '';
+  const row = document.createElement('div');
+  row.className = 'pane-row' + (blocked ? ' pane-row--blocked' : '');
+  row.innerHTML =
+    agentDotHtml(pane.agent_status) +
+    `<span class="pane-row-cmd">${esc(paneLabel(pane))}</span>` +
+    (label ? `<span class="pane-row-status">${esc(label)}</span>` : '');
+  row.addEventListener('click', () => {
+    state.currentPane = pane.target;
+    showWindowDetail(session.name, win.index);
+  });
+  return row;
 }
 
 function togglePinSession(name) {
@@ -780,15 +765,15 @@ function hidePermissionBanner() {
   state.pendingPermission = null;
 }
 
-// ===== Session Filter Chips (init) =====
-// #input-area/input.jsのbindEvents()には手を加えないため、フィルタチップの
+// ===== Top Tabs (init) =====
+// #input-area/input.jsのbindEvents()には手を加えないため、セグメンテッドタブの
 // イベント登録はここで自前で行う(settings.jsのbtn-settings系と同じパターン)。
 document.addEventListener('DOMContentLoaded', () => {
-  const chipsEl = $('session-filter-chips');
-  if (!chipsEl) return;
-  chipsEl.querySelectorAll('.filter-chip').forEach(btn => {
-    btn.addEventListener('click', () => setSessionListFilter(btn.dataset.filter));
+  const wrap = $('top-tabs');
+  if (!wrap) return;
+  wrap.querySelectorAll('.top-tab-btn').forEach(btn => {
+    btn.addEventListener('click', () => setTopTab(btn.dataset.tab));
   });
-  updateSessionFilterChips();
+  renderTopTabs();
 });
 

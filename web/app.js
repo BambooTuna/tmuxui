@@ -8,7 +8,9 @@ const state = {
   currentSession: null,
   currentPane: null,
   currentWindow: null,
-  expandedSessions: {},
+  currentTopTab: (() => {
+    try { return localStorage.getItem('tmuxui.topTab') || 'herdr'; } catch { return 'herdr'; }
+  })(),
   pendingPermission: null,
   reconnectTimer: null,
   refreshing: false,
