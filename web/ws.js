@@ -125,6 +125,12 @@ function handleWSMessage(msg) {
     case 'permission_detected':
       showPermissionBanner(msg);
       break;
+
+    case 'update_status':
+      if (msg.updateStatus && typeof renderUpdateSection === 'function') {
+        renderUpdateSection(msg.updateStatus);
+      }
+      break;
   }
 }
 

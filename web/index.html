@@ -11,7 +11,7 @@
   <meta name="theme-color" content="#1a1a2e">
   <link rel="icon" type="image/png" href="icon-192.png">
   <link rel="stylesheet" href="vendor/xterm/xterm.css">
-  <link rel="stylesheet" href="style.css?v=19">
+  <link rel="stylesheet" href="style.css?v=20">
 </head>
 <body>
 
@@ -129,6 +129,37 @@
             <button type="button" class="renderer-switch-btn" data-renderer-value="xterm">xterm</button>
             <button type="button" class="renderer-switch-btn" data-renderer-value="classic">従来</button>
           </div>
+        </div>
+      </div>
+      <div class="settings-section">
+        <div class="settings-section-title">アップデート</div>
+        <div class="settings-row">
+          <span class="settings-row-label">現在のバージョン</span>
+          <span id="update-current" class="settings-value">—</span>
+        </div>
+        <div class="settings-row">
+          <span class="settings-row-label">最新バージョン</span>
+          <span id="update-latest" class="settings-value">—</span>
+        </div>
+        <div class="settings-row">
+          <span class="settings-row-label">最終チェック</span>
+          <span id="update-last-checked" class="settings-value">—</span>
+        </div>
+        <div class="settings-row">
+          <span class="settings-row-label">自動チェック</span>
+          <div class="theme-switch">
+            <button type="button" id="update-auto-on" class="theme-switch-btn" data-auto-value="on">ON</button>
+            <button type="button" id="update-auto-off" class="theme-switch-btn" data-auto-value="off">OFF</button>
+          </div>
+        </div>
+        <div class="settings-row">
+          <span class="settings-row-label">チェック間隔(時間)</span>
+          <input type="number" id="update-interval-hours" class="modal-input" style="width:80px;text-align:right;margin-bottom:0" min="1" max="168" value="24">
+        </div>
+        <p id="update-error" class="settings-error" hidden></p>
+        <div class="modal-buttons">
+          <button type="button" id="update-check-btn" class="modal-btn modal-btn-cancel">アップデートを確認</button>
+          <button type="button" id="update-apply-btn" class="modal-btn modal-btn-ok" disabled>今すぐアップデート</button>
         </div>
       </div>
     </div>
@@ -283,9 +314,9 @@
   <script src="vendor/xterm/xterm.js"></script>
   <script src="vendor/xterm/addon-fit.js"></script>
   <script src="term.js?v=20"></script>
-  <script src="settings.js?v=14"></script>
+  <script src="settings.js?v=15"></script>
   <script src="app.js?v=14"></script>
-  <script src="ws.js?v=14"></script>
+  <script src="ws.js?v=15"></script>
   <script src="ansi.js?v=14"></script>
   <script src="views.js?v=15"></script>
   <script src="snippet.js?v=14"></script>

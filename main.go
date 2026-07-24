@@ -78,6 +78,11 @@ func main() {
 	globalRegistry = registry
 	go hub.run()
 
+	globalUpdateManager = newUpdateManager(globalPreferences, hub)
+	updateCtx, updateCancel := context.WithCancel(context.Background())
+	defer updateCancel()
+	go globalUpdateManager.Run(updateCtx)
+
 	addr := fmt.Sprintf("%s:%d", *host, *port)
 
 	srv := &http.Server{
@@ -90,6 +95,7 @@ func main() {
 
 	go func() {
 		<-quit
+		updateCancel()
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		srv.Shutdown(ctx)

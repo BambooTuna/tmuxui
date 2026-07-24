@@ -43,16 +43,17 @@ var upgrader = websocket.Upgrader{
 }
 
 type WSMessage struct {
-	Type     string    `json:"type"`
-	Target   string    `json:"target,omitempty"`
-	Content  string    `json:"content,omitempty"`
-	Data     string    `json:"data,omitempty"` // pane_snapshot/pane_outputのbase64本文
-	Ts       int64     `json:"ts,omitempty"`
-	Sessions []Session `json:"sessions,omitempty"`
-	Prompt   string    `json:"prompt,omitempty"`
-	Keys     string    `json:"keys,omitempty"`
-	Cols     int       `json:"cols,omitempty"`
-	Rows     int       `json:"rows,omitempty"`
+	Type         string        `json:"type"`
+	Target       string        `json:"target,omitempty"`
+	Content      string        `json:"content,omitempty"`
+	Data         string        `json:"data,omitempty"` // pane_snapshot/pane_outputのbase64本文
+	Ts           int64         `json:"ts,omitempty"`
+	Sessions     []Session     `json:"sessions,omitempty"`
+	Prompt       string        `json:"prompt,omitempty"`
+	Keys         string        `json:"keys,omitempty"`
+	Cols         int           `json:"cols,omitempty"`
+	Rows         int           `json:"rows,omitempty"`
+	UpdateStatus *UpdateStatus `json:"updateStatus,omitempty"`
 }
 
 type Client struct {
@@ -216,6 +217,20 @@ func (h *Hub) broadcastPaneList() {
 	h.sendToClients(clients, msg)
 }
 
+// broadcastUpdateStatus はアップデート状態を全クライアントへ通知する。broadcastPaneList と同じ流儀。
+func (h *Hub) broadcastUpdateStatus(status UpdateStatus) {
+	msg, _ := json.Marshal(WSMessage{Type: "update_status", UpdateStatus: &status})
+
+	h.mu.RLock()
+	clients := make([]*Client, 0, len(h.clients))
+	for c := range h.clients {
+		clients = append(clients, c)
+	}
+	h.mu.RUnlock()
+
+	h.sendToClients(clients, msg)
+}
+
 func (h *Hub) sendToClients(clients []*Client, msg []byte) {
 	for _, c := range clients {
 		c.trySend(msg)
@@ -238,6 +253,12 @@ func handleWS(hub *Hub, w http.ResponseWriter, r *http.Request) {
 
 	if sessions, err := hub.registry.ListSessions(); err == nil {
 		if msg, err := json.Marshal(WSMessage{Type: "pane_list", Sessions: sessions}); err == nil {
+			c.trySend(msg)
+		}
+	}
+	if globalUpdateManager != nil {
+		status := globalUpdateManager.Status()
+		if msg, err := json.Marshal(WSMessage{Type: "update_status", UpdateStatus: &status}); err == nil {
 			c.trySend(msg)
 		}
 	}

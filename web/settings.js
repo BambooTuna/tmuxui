@@ -60,6 +60,140 @@ function showSettings() {
   document.getElementById('view-settings').classList.add('active');
   updateThemeButtons();
   updateRendererButtons();
+  loadUpdateStatus();
+}
+
+// ===== アップデート =====
+// currentUpdateStatus / renderUpdateSection は ws.js からの push 再描画でも使うためグローバルに置く
+let currentUpdateStatus = null;
+let currentAutoUpdatePrefs = { enabled: true, autoApply: false, intervalHours: 24 };
+
+async function loadUpdateStatus() {
+  try {
+    const prefs = await apiFetch('/api/preferences');
+    if (prefs.autoUpdate && typeof prefs.autoUpdate === 'object') {
+      currentAutoUpdatePrefs = Object.assign({}, currentAutoUpdatePrefs, prefs.autoUpdate);
+    }
+  } catch {}
+  updateAutoUpdateInputs();
+
+  try {
+    const status = await apiFetch('/api/update/status');
+    renderUpdateSection(status);
+  } catch {}
+}
+
+async function checkUpdateNow() {
+  const btn = $('update-check-btn');
+  if (!btn || btn.disabled) return;
+  btn.disabled = true;
+  const originalText = btn.textContent;
+  btn.textContent = '確認中…';
+  try {
+    const status = await apiFetch('/api/update/check', { method: 'POST' });
+    renderUpdateSection(status);
+  } catch {
+    showUpdateError('アップデートの確認に失敗しました');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
+}
+
+async function applyUpdateNow() {
+  const btn = $('update-apply-btn');
+  if (!btn || btn.disabled) return;
+  btn.disabled = true;
+  btn.dataset.applying = '1';
+  btn.textContent = '適用中…';
+  hideUpdateError();
+  try {
+    await apiFetch('/api/update/apply', { method: 'POST' });
+    // レスポンス後、自プロセスは syscall.Exec で再起動する。WebSocket は自動再接続する(ws.js)ので
+    // ここではメッセージ表示のみ行い、ボタンは無効のままにしておく
+    btn.textContent = 'アップデート完了・再接続中…';
+  } catch {
+    showUpdateError('アップデートの適用に失敗しました');
+    delete btn.dataset.applying;
+    btn.disabled = !(currentUpdateStatus && currentUpdateStatus.hasUpdate);
+    btn.textContent = '今すぐアップデート';
+  }
+}
+
+function renderUpdateSection(status) {
+  currentUpdateStatus = status;
+  const currentEl = $('update-current');
+  const latestEl = $('update-latest');
+  const checkedEl = $('update-last-checked');
+  const applyBtn = $('update-apply-btn');
+
+  if (currentEl) currentEl.textContent = status.current || '—';
+  if (latestEl) latestEl.textContent = status.latest || '—';
+  if (checkedEl) {
+    checkedEl.textContent = status.lastCheckedAt && status.lastCheckedAt.slice(0, 4) !== '0001'
+      ? new Date(status.lastCheckedAt).toLocaleString('ja-JP')
+      : '—';
+  }
+  // 適用中(dataset.applying)にWS pushが来ても「適用中…」表示を上書きしない
+  if (applyBtn && !applyBtn.dataset.applying) {
+    applyBtn.disabled = !status.hasUpdate || !!status.applied;
+    applyBtn.textContent = status.applied ? '適用済み・再起動待ち' : '今すぐアップデート';
+  }
+
+  if (status.lastError) {
+    showUpdateError(status.lastError);
+  } else {
+    hideUpdateError();
+  }
+}
+
+function showUpdateError(msg) {
+  const el = $('update-error');
+  if (!el) return;
+  el.textContent = msg;
+  el.hidden = false;
+}
+
+function hideUpdateError() {
+  const el = $('update-error');
+  if (!el) return;
+  el.hidden = true;
+  el.textContent = '';
+}
+
+function updateAutoUpdateInputs() {
+  const onBtn = $('update-auto-on');
+  const offBtn = $('update-auto-off');
+  if (onBtn && offBtn) {
+    onBtn.classList.toggle('active', !!currentAutoUpdatePrefs.enabled);
+    offBtn.classList.toggle('active', !currentAutoUpdatePrefs.enabled);
+  }
+  const intervalEl = $('update-interval-hours');
+  // 入力中に上書きしない
+  if (intervalEl && document.activeElement !== intervalEl) {
+    intervalEl.value = currentAutoUpdatePrefs.intervalHours || 24;
+  }
+}
+
+function saveAutoUpdatePrefs() {
+  apiFetch('/api/preferences', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ autoUpdate: currentAutoUpdatePrefs }),
+  }).catch(() => {});
+}
+
+function setAutoUpdateEnabled(enabled) {
+  currentAutoUpdatePrefs = Object.assign({}, currentAutoUpdatePrefs, { enabled });
+  updateAutoUpdateInputs();
+  saveAutoUpdatePrefs();
+}
+
+function setAutoUpdateInterval(hours) {
+  const clamped = Math.min(168, Math.max(1, Math.round(hours) || 24));
+  currentAutoUpdatePrefs = Object.assign({}, currentAutoUpdatePrefs, { intervalHours: clamped });
+  updateAutoUpdateInputs();
+  saveAutoUpdatePrefs();
 }
 
 // NOTE: state は app.js で定義されるグローバル変数（DOMContentLoaded 後に参照）
@@ -82,4 +216,12 @@ document.addEventListener('DOMContentLoaded', () => {
   for (const btn of document.querySelectorAll('.renderer-switch-btn')) {
     btn.addEventListener('click', () => applyRenderer(btn.dataset.rendererValue));
   }
+
+  document.getElementById('update-check-btn').addEventListener('click', checkUpdateNow);
+  document.getElementById('update-apply-btn').addEventListener('click', applyUpdateNow);
+  document.getElementById('update-auto-on').addEventListener('click', () => setAutoUpdateEnabled(true));
+  document.getElementById('update-auto-off').addEventListener('click', () => setAutoUpdateEnabled(false));
+  const intervalEl = document.getElementById('update-interval-hours');
+  intervalEl.addEventListener('change', () => setAutoUpdateInterval(parseInt(intervalEl.value, 10)));
+  intervalEl.addEventListener('blur', () => setAutoUpdateInterval(parseInt(intervalEl.value, 10)));
 });

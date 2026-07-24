@@ -146,6 +146,21 @@
 
 .theme-switch-btn:active { opacity: 0.8; }
 
+/* アップデートセクション: バージョン等の右寄せ薄色テキストとエラー表示 */
+.settings-value {
+  font-size: 13px;
+  color: var(--muted);
+  font-family: var(--mono);
+}
+
+.settings-error {
+  color: #ff6b6b;
+  font-size: 12px;
+  padding: 0 4px 8px;
+}
+
+.modal-btn:disabled { opacity: 0.4; cursor: default; }
+
 /* ===== Reset ===== */
 *, *::before, *::after {
   box-sizing: border-box;

@@ -342,7 +342,35 @@ func handlePutPreferences(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	globalPreferences.Merge(body)
+	if globalUpdateManager != nil {
+		globalUpdateManager.NotifyPreferenceChanged()
+	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func handleUpdateStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(globalUpdateManager.Status())
+}
+
+func handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
+	status, err := globalUpdateManager.CheckNow(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(status)
+}
+
+func handleUpdateApply(w http.ResponseWriter, r *http.Request) {
+	status, err := globalUpdateManager.ApplyNow(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(status)
 }
 
 func handleClaudeCommands(w http.ResponseWriter, r *http.Request) {
