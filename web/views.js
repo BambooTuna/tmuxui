@@ -606,7 +606,6 @@ function createPaneRow(session, win, pane) {
     `<span class="pane-row-cmd">${esc(paneLabel(pane))}</span>` +
     (label ? `<span class="pane-row-status">${esc(label)}</span>` : '');
   row.addEventListener('click', () => {
-    state.currentPane = pane.target;
     showWindowDetail(session.name, win.index);
   });
   return row;
