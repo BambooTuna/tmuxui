@@ -533,13 +533,14 @@ func (b *HerdrBackend) runPoller(target string, p *herdrPoller) {
 	}
 }
 
-// CapturePane はポーリング表示・permission検知向けの平文+ANSI付きキャプチャを、Snapshotと同様
-// source:"recent"+lines:snapshotHistoryLinesでスクロールバック込みに取得する(classic描画/REST経由の
-// 遡りにも対応するため)。
+// CapturePane はclassic描画・REST経由取得向けのキャプチャを、Snapshotと同様
+// source:"recent"+lines:snapshotHistoryLinesでスクロールバック込みに取得する。
+// classicモード(ansi.js)側で色/装飾を描画できるようANSI付きで返す(permission検知など
+// 平文が必要な用途はCapturePanePlainを使う)。
 func (b *HerdrBackend) CapturePane(target string) (*PaneContent, error) {
 	var res herdrReadResult
 	if err := b.client.call("pane.read", map[string]interface{}{
-		"pane_id": target, "source": "recent", "lines": snapshotHistoryLines, "format": "text", "strip_ansi": true,
+		"pane_id": target, "source": "recent", "lines": snapshotHistoryLines, "format": "ansi", "strip_ansi": false,
 	}, &res); err != nil {
 		return nil, err
 	}
