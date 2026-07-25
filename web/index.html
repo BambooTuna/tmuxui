@@ -11,7 +11,7 @@
   <meta name="theme-color" content="#1a1a2e">
   <link rel="icon" type="image/png" href="icon-192.png">
   <link rel="stylesheet" href="vendor/xterm/xterm.css">
-  <link rel="stylesheet" href="style.css?v=24">
+  <link rel="stylesheet" href="style.css?v=25">
 </head>
 <body>
 
@@ -160,6 +160,20 @@
         <div class="modal-buttons">
           <button type="button" id="update-check-btn" class="modal-btn modal-btn-cancel">アップデートを確認</button>
           <button type="button" id="update-apply-btn" class="modal-btn modal-btn-ok" disabled>今すぐアップデート</button>
+        </div>
+        <div class="settings-subsection">
+          <div class="settings-subsection-title">バージョンを指定して切替</div>
+          <div class="settings-row">
+            <span class="settings-row-label">バージョン</span>
+            <select id="update-version-select" class="modal-input" style="max-width: 200px;">
+              <option value="">読み込み中…</option>
+            </select>
+          </div>
+          <p class="settings-hint">切替時は自動アップデートを OFF にします。</p>
+          <div class="modal-buttons">
+            <button type="button" id="update-version-refresh-btn" class="modal-btn modal-btn-cancel">一覧を更新</button>
+            <button type="button" id="update-version-apply-btn" class="modal-btn modal-btn-ok" disabled>このバージョンに切替</button>
+          </div>
         </div>
       </div>
     </div>
@@ -314,7 +328,7 @@
   <script src="vendor/xterm/xterm.js"></script>
   <script src="vendor/xterm/addon-fit.js"></script>
   <script src="term.js?v=20"></script>
-  <script src="settings.js?v=15"></script>
+  <script src="settings.js?v=16"></script>
   <script src="app.js?v=14"></script>
   <script src="ws.js?v=15"></script>
   <script src="ansi.js?v=14"></script>

@@ -364,13 +364,39 @@ func handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleUpdateApply(w http.ResponseWriter, r *http.Request) {
-	status, err := globalUpdateManager.ApplyNow(r.Context())
+	// body 省略 or version 空 → 従来通り latest を apply
+	// {"version":"v2.0.1"} 付き → 指定版に切替 (ApplyVersion)
+	var body struct {
+		Version string `json:"version"`
+	}
+	if r.ContentLength > 0 {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+	}
+	var (
+		status UpdateStatus
+		err    error
+	)
+	if body.Version != "" {
+		status, err = globalUpdateManager.ApplyVersion(r.Context(), body.Version)
+	} else {
+		status, err = globalUpdateManager.ApplyNow(r.Context())
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(status)
+}
+
+func handleUpdateReleases(w http.ResponseWriter, r *http.Request) {
+	rels, err := listSelectableReleases(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"releases": rels})
 }
 
 func handleClaudeCommands(w http.ResponseWriter, r *http.Request) {

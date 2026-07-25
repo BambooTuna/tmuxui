@@ -2,15 +2,22 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
 
 	"github.com/creativeprojects/go-selfupdate"
 )
+
+// selectableMinVersion より小さいタグはバージョン選択 UI に載せない。
+// v2.0.0 で「任意バージョン切替」機能が入ったので、それ以前を選ばせても機能が動かない。
+const selectableMinVersion = "v2.0.0"
 
 // globalUpdateManager はサーバー起動時に main.go から組み立てられる (globalPreferences と同じ流儀)
 var globalUpdateManager *UpdateManager
@@ -59,6 +66,106 @@ func checkForUpdate(ctx context.Context) (latest *selfupdate.Release, hasUpdate 
 	}()
 	hasUpdate = !latest.LessOrEqual(version)
 	return latest, hasUpdate, nil
+}
+
+// detectVersion は指定タグ (先頭 v は許容) の Release を取得する。
+func detectVersion(ctx context.Context, versionStr string) (*selfupdate.Release, error) {
+	updater, err := newSelfUpdater()
+	if err != nil {
+		return nil, err
+	}
+	v := strings.TrimPrefix(versionStr, "v")
+	rel, found, err := updater.DetectVersion(ctx, selfupdate.ParseSlug("BambooTuna/tmuxui"), v)
+	if err != nil {
+		return nil, fmt.Errorf("detect version %s failed: %w", versionStr, err)
+	}
+	if !found {
+		return nil, fmt.Errorf("release %s not found for this platform", versionStr)
+	}
+	return rel, nil
+}
+
+// AvailableRelease は UI 側の select に表示する 1 件。
+type AvailableRelease struct {
+	Version     string    `json:"version"`
+	Name        string    `json:"name,omitempty"`
+	PublishedAt time.Time `json:"publishedAt,omitempty"`
+	Prerelease  bool      `json:"prerelease,omitempty"`
+}
+
+// listSelectableReleases は GitHub REST API から releases を取得し、selectableMinVersion 以上のみ返す。
+// go-selfupdate に list API がないため直叩き。認証なし (public repo) で rate limit 60/h。
+func listSelectableReleases(ctx context.Context) ([]AvailableRelease, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/repos/BambooTuna/tmuxui/releases?per_page=100", nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("list releases failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("list releases: unexpected status %d", resp.StatusCode)
+	}
+	var raw []struct {
+		TagName     string    `json:"tag_name"`
+		Name        string    `json:"name"`
+		Draft       bool      `json:"draft"`
+		Prerelease  bool      `json:"prerelease"`
+		PublishedAt time.Time `json:"published_at"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		return nil, fmt.Errorf("decode releases: %w", err)
+	}
+	out := make([]AvailableRelease, 0, len(raw))
+	for _, r := range raw {
+		if r.Draft {
+			continue
+		}
+		if compareSemver(r.TagName, selectableMinVersion) < 0 {
+			continue
+		}
+		out = append(out, AvailableRelease{
+			Version:     r.TagName,
+			Name:        r.Name,
+			PublishedAt: r.PublishedAt,
+			Prerelease:  r.Prerelease,
+		})
+	}
+	return out, nil
+}
+
+// compareSemver は "vX.Y.Z" 形式を比較する簡易実装。非semver は 0 扱いで無害化する。
+func compareSemver(a, b string) int {
+	pa := parseSemverTriple(a)
+	pb := parseSemverTriple(b)
+	for i := 0; i < 3; i++ {
+		if pa[i] != pb[i] {
+			if pa[i] < pb[i] {
+				return -1
+			}
+			return 1
+		}
+	}
+	return 0
+}
+
+func parseSemverTriple(s string) [3]int {
+	s = strings.TrimPrefix(s, "v")
+	// pre-release 部分 (-rc.1 等) は無視
+	if idx := strings.IndexAny(s, "-+"); idx >= 0 {
+		s = s[:idx]
+	}
+	parts := strings.SplitN(s, ".", 3)
+	var out [3]int
+	for i := 0; i < 3 && i < len(parts); i++ {
+		var n int
+		fmt.Sscanf(parts[i], "%d", &n)
+		out[i] = n
+	}
+	return out
 }
 
 // applyUpdate は latest のバイナリを取得して自身の実行ファイルと差し替える。
@@ -278,6 +385,69 @@ func (m *UpdateManager) ApplyNow(ctx context.Context) (UpdateStatus, error) {
 		}
 	}()
 
+	return status, nil
+}
+
+// ApplyVersion は指定タグの Release にバイナリを差し替える (ダウングレード方向は非対応、
+// selectableMinVersion 未満は弾く)。切替時は autoUpdate.autoApply を強制 OFF に更新し、
+// 次回チェックで latest に自動昇格して指定版が上書きされないようにする。
+func (m *UpdateManager) ApplyVersion(ctx context.Context, versionStr string) (UpdateStatus, error) {
+	if os.Getenv("TMUXUI_AUTOUPDATE") == "0" {
+		return UpdateStatus{Current: version, LastError: "auto-update disabled by TMUXUI_AUTOUPDATE=0"}, nil
+	}
+	if compareSemver(versionStr, selectableMinVersion) < 0 {
+		err := fmt.Errorf("version %s is below the minimum selectable version %s", versionStr, selectableMinVersion)
+		return UpdateStatus{Current: version, LastError: err.Error()}, err
+	}
+
+	// apply後は/proc/self/exeが.oldを指すためapply前に元パスを保存
+	exe, _ := selfupdate.ExecutablePath()
+
+	rel, err := detectVersion(ctx, versionStr)
+	if err != nil {
+		status := m.setStatus(func(s *UpdateStatus) { s.LastError = err.Error() })
+		if m.hub != nil {
+			m.hub.broadcastUpdateStatus(status)
+		}
+		return status, err
+	}
+	if err := applyUpdate(ctx, rel); err != nil {
+		status := m.setStatus(func(s *UpdateStatus) { s.LastError = err.Error() })
+		if m.hub != nil {
+			m.hub.broadcastUpdateStatus(status)
+		}
+		return status, err
+	}
+
+	// 指定バージョンが auto-apply で上書きされないよう強制 OFF に
+	if m.prefs != nil {
+		cur, _ := m.prefs.GetAll()["autoUpdate"].(map[string]any)
+		if cur == nil {
+			cur = map[string]any{}
+		}
+		cur["autoApply"] = false
+		m.prefs.Merge(map[string]any{"autoUpdate": cur})
+		m.NotifyPreferenceChanged()
+	}
+
+	now := time.Now()
+	status := m.setStatus(func(s *UpdateStatus) {
+		s.Latest = rel.Version()
+		s.HasUpdate = false
+		s.Applied = true
+		s.AppliedAt = now
+		s.LastError = ""
+	})
+	if m.hub != nil {
+		m.hub.broadcastUpdateStatus(status)
+	}
+
+	go func() {
+		time.Sleep(500 * time.Millisecond)
+		if err := restartSelf(exe); err != nil {
+			log.Printf("update: restart failed: %v", err)
+		}
+	}()
 	return status, nil
 }
 

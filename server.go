@@ -36,6 +36,7 @@ func newServer(token string, hub *Hub, dev bool) http.Handler {
 	mux.HandleFunc("GET /api/preferences", handleGetPreferences)
 	mux.HandleFunc("PUT /api/preferences", handlePutPreferences)
 	mux.HandleFunc("GET /api/update/status", handleUpdateStatus)
+	mux.HandleFunc("GET /api/update/releases", handleUpdateReleases)
 	mux.HandleFunc("POST /api/update/check", handleUpdateCheck)
 	mux.HandleFunc("POST /api/update/apply", handleUpdateApply)
 	mux.HandleFunc("GET /api/claude/commands", handleClaudeCommands)

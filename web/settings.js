@@ -81,6 +81,8 @@ async function loadUpdateStatus() {
     const status = await apiFetch('/api/update/status');
     renderUpdateSection(status);
   } catch {}
+
+  loadAvailableReleases();
 }
 
 async function checkUpdateNow() {
@@ -196,6 +198,67 @@ function setAutoUpdateInterval(hours) {
   saveAutoUpdatePrefs();
 }
 
+// ===== バージョン指定切替 =====
+let availableReleases = [];
+
+async function loadAvailableReleases() {
+  const select = $('update-version-select');
+  const applyBtn = $('update-version-apply-btn');
+  if (!select) return;
+  select.innerHTML = '<option value="">読み込み中…</option>';
+  if (applyBtn) applyBtn.disabled = true;
+  try {
+    const data = await apiFetch('/api/update/releases');
+    availableReleases = data.releases || [];
+    if (availableReleases.length === 0) {
+      select.innerHTML = '<option value="">利用可能なバージョンがありません</option>';
+      return;
+    }
+    select.innerHTML = '';
+    for (const r of availableReleases) {
+      const opt = document.createElement('option');
+      opt.value = r.version;
+      const label = r.version + (r.prerelease ? ' (pre)' : '');
+      opt.textContent = label;
+      if (currentUpdateStatus && ('v' + currentUpdateStatus.current) === r.version) {
+        opt.textContent = label + ' — 現在';
+        opt.selected = true;
+      }
+      select.appendChild(opt);
+    }
+    if (applyBtn) applyBtn.disabled = false;
+  } catch (e) {
+    select.innerHTML = '<option value="">取得に失敗しました</option>';
+  }
+}
+
+async function applyVersionSwitch() {
+  const select = $('update-version-select');
+  const btn = $('update-version-apply-btn');
+  if (!select || !btn || btn.disabled) return;
+  const v = select.value;
+  if (!v) return;
+  if (!window.confirm(`${v} に切り替えます。自動アップデートは OFF になります。よろしいですか？`)) return;
+  btn.disabled = true;
+  btn.dataset.applying = '1';
+  const originalText = btn.textContent;
+  btn.textContent = '切替中…';
+  hideUpdateError();
+  try {
+    await apiFetch('/api/update/apply', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ version: v }),
+    });
+    btn.textContent = '切替完了・再接続中…';
+  } catch (e) {
+    showUpdateError('バージョン切替に失敗しました');
+    delete btn.dataset.applying;
+    btn.disabled = false;
+    btn.textContent = originalText;
+  }
+}
+
 // NOTE: state は app.js で定義されるグローバル変数（DOMContentLoaded 後に参照）
 function hideSettings() {
   document.getElementById('view-settings').classList.remove('active');
@@ -224,4 +287,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const intervalEl = document.getElementById('update-interval-hours');
   intervalEl.addEventListener('change', () => setAutoUpdateInterval(parseInt(intervalEl.value, 10)));
   intervalEl.addEventListener('blur', () => setAutoUpdateInterval(parseInt(intervalEl.value, 10)));
+  const versionRefreshBtn = document.getElementById('update-version-refresh-btn');
+  const versionApplyBtn = document.getElementById('update-version-apply-btn');
+  if (versionRefreshBtn) versionRefreshBtn.addEventListener('click', loadAvailableReleases);
+  if (versionApplyBtn) versionApplyBtn.addEventListener('click', applyVersionSwitch);
 });
