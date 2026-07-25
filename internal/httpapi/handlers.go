@@ -1,4 +1,4 @@
-package main
+package httpapi
 
 import (
 	"encoding/json"
@@ -8,13 +8,48 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/BambooTuna/tmuxui/internal/backend"
+	"github.com/BambooTuna/tmuxui/internal/claudecmds"
+	"github.com/BambooTuna/tmuxui/internal/selfupdate"
 )
 
-var globalPreferences *Preferences
-var globalRegistry *BackendRegistry
+// resolve はidをs.registryで解決し、失敗時はbadMsg付きの400を書いてok=falseを返す。
+// target(pane)向けは"invalid target"、name(session)向けは"invalid name"を渡すこと
+// (レスポンス文言は移行前の挙動を維持する)。
+func (s *Server) resolve(w http.ResponseWriter, id, badMsg string) (backend.PaneBackend, string, bool) {
+	b, native, err := s.registry.Resolve(id)
+	if err != nil {
+		http.Error(w, badMsg, http.StatusBadRequest)
+		return nil, "", false
+	}
+	return b, native, true
+}
 
-func handleSessions(w http.ResponseWriter, r *http.Request) {
-	sessions, err := globalRegistry.ListSessions()
+// writeResult はerrがあれば500、なければ204を書く定型処理をまとめたヘルパー。
+func writeResult(w http.ResponseWriter, err error) {
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// writeResultThen はwriteResultに加え、成功時のみonSuccessを呼ぶ(ピン留めセッション名の
+// 追従更新など、副作用を伴うハンドラ向け)。
+func writeResultThen(w http.ResponseWriter, err error, onSuccess func()) {
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	if onSuccess != nil {
+		onSuccess()
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *Server) handleSessions(w http.ResponseWriter, r *http.Request) {
+	sessions, err := s.registry.ListSessions()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -25,14 +60,13 @@ func handleSessions(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func handlePaneContent(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handlePaneContent(w http.ResponseWriter, r *http.Request) {
 	target, _ := url.PathUnescape(r.PathValue("target"))
-	backend, native, err := globalRegistry.Resolve(target)
-	if err != nil {
-		http.Error(w, "invalid target", http.StatusBadRequest)
+	b, native, ok := s.resolve(w, target, "invalid target")
+	if !ok {
 		return
 	}
-	pc, err := backend.CapturePane(native)
+	pc, err := b.CapturePane(native)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -42,11 +76,10 @@ func handlePaneContent(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(pc)
 }
 
-func handlePaneKeys(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handlePaneKeys(w http.ResponseWriter, r *http.Request) {
 	target, _ := url.PathUnescape(r.PathValue("target"))
-	backend, native, err := globalRegistry.Resolve(target)
-	if err != nil {
-		http.Error(w, "invalid target", http.StatusBadRequest)
+	b, native, ok := s.resolve(w, target, "invalid target")
+	if !ok {
 		return
 	}
 	var body struct {
@@ -56,14 +89,10 @@ func handlePaneKeys(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := backend.SendKeys(native, body.Keys); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	writeResult(w, b.SendKeys(native, body.Keys))
 }
 
-func handleCreateSession(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleCreateSession(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Name string `json:"name"`
 		Dir  string `json:"dir"`
@@ -72,38 +101,28 @@ func handleCreateSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid name", http.StatusBadRequest)
 		return
 	}
-	backend, native, err := globalRegistry.Resolve(body.Name)
-	if err != nil {
-		http.Error(w, "invalid name", http.StatusBadRequest)
+	b, native, ok := s.resolve(w, body.Name, "invalid name")
+	if !ok {
 		return
 	}
-	if err := backend.NewSession(native, body.Dir); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	writeResult(w, b.NewSession(native, body.Dir))
 }
 
-func handleKillSession(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleKillSession(w http.ResponseWriter, r *http.Request) {
 	name, _ := url.PathUnescape(r.PathValue("name"))
-	backend, native, err := globalRegistry.Resolve(name)
-	if err != nil {
-		http.Error(w, "invalid name", http.StatusBadRequest)
+	b, native, ok := s.resolve(w, name, "invalid name")
+	if !ok {
 		return
 	}
-	if err := backend.KillSession(native); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	removePinnedSession(native)
-	w.WriteHeader(http.StatusNoContent)
+	writeResultThen(w, b.KillSession(native), func() {
+		s.preferences.RemovePinnedSession(native)
+	})
 }
 
-func handleRenameSession(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleRenameSession(w http.ResponseWriter, r *http.Request) {
 	oldName, _ := url.PathUnescape(r.PathValue("name"))
-	backend, native, err := globalRegistry.Resolve(oldName)
-	if err != nil {
-		http.Error(w, "invalid name", http.StatusBadRequest)
+	b, native, ok := s.resolve(w, oldName, "invalid name")
+	if !ok {
 		return
 	}
 	var body struct {
@@ -113,19 +132,15 @@ func handleRenameSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid name", http.StatusBadRequest)
 		return
 	}
-	if err := backend.RenameSession(native, body.Name); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	renamePinnedSession(native, body.Name)
-	w.WriteHeader(http.StatusNoContent)
+	writeResultThen(w, b.RenameSession(native, body.Name), func() {
+		s.preferences.RenamePinnedSession(native, body.Name)
+	})
 }
 
-func handleCreateWindow(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleCreateWindow(w http.ResponseWriter, r *http.Request) {
 	name, _ := url.PathUnescape(r.PathValue("name"))
-	backend, native, err := globalRegistry.Resolve(name)
-	if err != nil {
-		http.Error(w, "invalid name", http.StatusBadRequest)
+	b, native, ok := s.resolve(w, name, "invalid name")
+	if !ok {
 		return
 	}
 	var body struct {
@@ -135,33 +150,31 @@ func handleCreateWindow(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	if err := backend.NewWindow(native, body.Name); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	writeResult(w, b.NewWindow(native, body.Name))
 }
 
-func handleKillWindow(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleKillWindow(w http.ResponseWriter, r *http.Request) {
 	name, _ := url.PathUnescape(r.PathValue("name"))
 	index, _ := url.PathUnescape(r.PathValue("index"))
-	backend, native, err := globalRegistry.Resolve(name)
-	if err != nil || !backend.ValidTarget(index) {
+	b, native, ok := s.resolve(w, name, "invalid name")
+	if !ok {
+		return
+	}
+	if !b.ValidTarget(index) {
 		http.Error(w, "invalid name", http.StatusBadRequest)
 		return
 	}
-	if err := backend.KillWindow(native + ":" + index); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	writeResult(w, b.KillWindow(native+":"+index))
 }
 
-func handleRenameWindow(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleRenameWindow(w http.ResponseWriter, r *http.Request) {
 	name, _ := url.PathUnescape(r.PathValue("name"))
 	index, _ := url.PathUnescape(r.PathValue("index"))
-	backend, native, err := globalRegistry.Resolve(name)
-	if err != nil || !backend.ValidTarget(index) {
+	b, native, ok := s.resolve(w, name, "invalid name")
+	if !ok {
+		return
+	}
+	if !b.ValidTarget(index) {
 		http.Error(w, "invalid name", http.StatusBadRequest)
 		return
 	}
@@ -172,48 +185,52 @@ func handleRenameWindow(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid name", http.StatusBadRequest)
 		return
 	}
-	if err := backend.RenameWindow(native+":"+index, body.Name); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	writeResult(w, b.RenameWindow(native+":"+index, body.Name))
 }
 
-func handleKillPane(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleKillPane(w http.ResponseWriter, r *http.Request) {
 	target, _ := url.PathUnescape(r.PathValue("target"))
-	backend, native, err := globalRegistry.Resolve(target)
-	if err != nil {
-		http.Error(w, "invalid target", http.StatusBadRequest)
+	b, native, ok := s.resolve(w, target, "invalid target")
+	if !ok {
 		return
 	}
-	if err := backend.KillPane(native); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	writeResult(w, b.KillPane(native))
 }
 
-func handleSplitPane(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleSplitPane(w http.ResponseWriter, r *http.Request) {
 	target, _ := url.PathUnescape(r.PathValue("target"))
-	backend, native, err := globalRegistry.Resolve(target)
-	if err != nil {
-		http.Error(w, "invalid target", http.StatusBadRequest)
+	b, native, ok := s.resolve(w, target, "invalid target")
+	if !ok {
 		return
 	}
 	var body struct {
 		Horizontal bool `json:"horizontal"`
 	}
-	json.NewDecoder(r.Body).Decode(&body)
-	if err := backend.SplitPane(native, body.Horizontal); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil && err != io.EOF {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	w.WriteHeader(http.StatusNoContent)
+	writeResult(w, b.SplitPane(native, body.Horizontal))
 }
 
 func snippetsDir() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".config", "tmuxui", "snippets")
+}
+
+// validSnippetName はnameがsnippetsDir()直下のファイル名としてそのまま使って安全かどうかを返す。
+// パス区切り(/, \)や".."を含む名前、空文字、"."/".."そのものは拒否する。safeFilerPath
+// (filer.go)がroot配下へのパス正規化+prefix検証で境界を守るのに対し、こちらはsnippetsDir()
+// 直下のフラットな1セグメントのファイル名しか扱わないため、区切り文字と".."の禁止だけで
+// 同等以上に安全(ディレクトリを跨げない)。
+func validSnippetName(name string) bool {
+	if name == "" || name == "." || name == ".." {
+		return false
+	}
+	if strings.ContainsAny(name, "/\\") {
+		return false
+	}
+	return !strings.Contains(name, "..")
 }
 
 func handleSnippetList(w http.ResponseWriter, r *http.Request) {
@@ -245,7 +262,7 @@ func handleSnippetList(w http.ResponseWriter, r *http.Request) {
 
 func handleSnippetContent(w http.ResponseWriter, r *http.Request) {
 	name, _ := url.PathUnescape(r.PathValue("name"))
-	if strings.Contains(name, "/") || strings.Contains(name, "..") {
+	if !validSnippetName(name) {
 		http.Error(w, "invalid name", http.StatusBadRequest)
 		return
 	}
@@ -267,7 +284,7 @@ func handleCreateSnippet(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid name", http.StatusBadRequest)
 		return
 	}
-	if strings.Contains(body.Name, "/") || strings.Contains(body.Name, "..") {
+	if !validSnippetName(body.Name) {
 		http.Error(w, "invalid name", http.StatusBadRequest)
 		return
 	}
@@ -289,7 +306,7 @@ func handleCreateSnippet(w http.ResponseWriter, r *http.Request) {
 
 func handleUpdateSnippet(w http.ResponseWriter, r *http.Request) {
 	name, _ := url.PathUnescape(r.PathValue("name"))
-	if strings.Contains(name, "/") || strings.Contains(name, "..") {
+	if !validSnippetName(name) {
 		http.Error(w, "invalid name", http.StatusBadRequest)
 		return
 	}
@@ -307,7 +324,7 @@ func handleUpdateSnippet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if body.Name != "" && body.Name != name {
-		if strings.Contains(body.Name, "/") || strings.Contains(body.Name, "..") {
+		if !validSnippetName(body.Name) {
 			http.Error(w, "invalid name", http.StatusBadRequest)
 			return
 		}
@@ -330,31 +347,44 @@ func handleUpdateSnippet(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func handleGetPreferences(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(globalPreferences.GetAll())
+func handleDeleteSnippet(w http.ResponseWriter, r *http.Request) {
+	name, _ := url.PathUnescape(r.PathValue("name"))
+	if !validSnippetName(name) {
+		http.Error(w, "invalid name", http.StatusBadRequest)
+		return
+	}
+	if err := os.Remove(filepath.Join(snippetsDir(), name)); err != nil {
+		http.Error(w, "not found", http.StatusNotFound)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
-func handlePutPreferences(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleGetPreferences(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(s.preferences.GetAll())
+}
+
+func (s *Server) handlePutPreferences(w http.ResponseWriter, r *http.Request) {
 	var body map[string]any
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	globalPreferences.Merge(body)
-	if globalUpdateManager != nil {
-		globalUpdateManager.NotifyPreferenceChanged()
+	s.preferences.Merge(body)
+	if s.updates != nil {
+		s.updates.NotifyPreferenceChanged()
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func handleUpdateStatus(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleUpdateStatus(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(globalUpdateManager.Status())
+	json.NewEncoder(w).Encode(s.updates.Status())
 }
 
-func handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
-	status, err := globalUpdateManager.CheckNow(r.Context())
+func (s *Server) handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
+	status, err := s.updates.CheckNow(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -363,7 +393,7 @@ func handleUpdateCheck(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(status)
 }
 
-func handleUpdateApply(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 	// body 省略 or version 空 → 従来通り latest を apply
 	// {"version":"v2.0.1"} 付き → 指定版に切替 (ApplyVersion)
 	var body struct {
@@ -373,13 +403,13 @@ func handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 	}
 	var (
-		status UpdateStatus
+		status selfupdate.UpdateStatus
 		err    error
 	)
 	if body.Version != "" {
-		status, err = globalUpdateManager.ApplyVersion(r.Context(), body.Version)
+		status, err = s.updates.ApplyVersion(r.Context(), body.Version)
 	} else {
-		status, err = globalUpdateManager.ApplyNow(r.Context())
+		status, err = s.updates.ApplyNow(r.Context())
 	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -389,8 +419,8 @@ func handleUpdateApply(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(status)
 }
 
-func handleUpdateReleases(w http.ResponseWriter, r *http.Request) {
-	rels, err := listSelectableReleases(r.Context())
+func (s *Server) handleUpdateReleases(w http.ResponseWriter, r *http.Request) {
+	rels, err := selfupdate.ListSelectableReleases(r.Context())
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -400,20 +430,7 @@ func handleUpdateReleases(w http.ResponseWriter, r *http.Request) {
 }
 
 func handleClaudeCommands(w http.ResponseWriter, r *http.Request) {
-	cmds := loadClaudeCommands()
+	cmds := claudecmds.Load()
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{"commands": cmds})
-}
-
-func handleDeleteSnippet(w http.ResponseWriter, r *http.Request) {
-	name, _ := url.PathUnescape(r.PathValue("name"))
-	if strings.Contains(name, "/") || strings.Contains(name, "..") {
-		http.Error(w, "invalid name", http.StatusBadRequest)
-		return
-	}
-	if err := os.Remove(filepath.Join(snippetsDir(), name)); err != nil {
-		http.Error(w, "not found", http.StatusNotFound)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
 }

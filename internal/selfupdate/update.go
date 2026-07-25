@@ -1,4 +1,6 @@
-package main
+// Package selfupdate wraps github.com/creativeprojects/go-selfupdate to check for and apply
+// tmuxui releases, plus a small UpdateManager that tracks state and runs periodic checks.
+package selfupdate
 
 import (
 	"context"
@@ -13,14 +15,14 @@ import (
 	"time"
 
 	"github.com/creativeprojects/go-selfupdate"
+
+	"github.com/BambooTuna/tmuxui/internal/config"
+	"github.com/BambooTuna/tmuxui/internal/prefs"
 )
 
 // selectableMinVersion より小さいタグはバージョン選択 UI に載せない。
 // v2.0.0 で「任意バージョン切替」機能が入ったので、それ以前を選ばせても機能が動かない。
 const selectableMinVersion = "v2.0.0"
-
-// globalUpdateManager はサーバー起動時に main.go から組み立てられる (globalPreferences と同じ流儀)
-var globalUpdateManager *UpdateManager
 
 // UpdateStatus はアップデートの現在状態。HTTP/WebSocket 双方でそのまま JSON 化して使う。
 type UpdateStatus struct {
@@ -33,6 +35,13 @@ type UpdateStatus struct {
 	AppliedAt     time.Time `json:"appliedAt,omitempty"`
 }
 
+// StatusBroadcaster はUpdateStatusの変化を外部(WebSocket Hub)へ通知するためのインターフェース。
+// このパッケージがinternal/hubに依存しない(依存の輪を作らない)ように、実装ではなく必要な
+// メソッドだけをここで定義する。*hub.Hub はBroadcastUpdateStatusを実装することでこれを満たす。
+type StatusBroadcaster interface {
+	BroadcastUpdateStatus(UpdateStatus)
+}
+
 // newSelfUpdater は go-selfupdate の Updater をチェックサム検証付きで生成する。
 func newSelfUpdater() (*selfupdate.Updater, error) {
 	return selfupdate.NewUpdater(selfupdate.Config{
@@ -43,7 +52,7 @@ func newSelfUpdater() (*selfupdate.Updater, error) {
 // checkForUpdate は最新リリースを取得するだけで適用は行わない。
 // version == "dev" は開発ビルドとして常に「更新なし」扱い(既存挙動維持)。
 // 非semverなバージョン(ローカル手動ビルド等)でLessOrEqualが panic するのを防ぐため recover する。
-func checkForUpdate(ctx context.Context) (latest *selfupdate.Release, hasUpdate bool, err error) {
+func checkForUpdate(ctx context.Context, version string) (latest *selfupdate.Release, hasUpdate bool, err error) {
 	updater, uerr := newSelfUpdater()
 	if uerr != nil {
 		return nil, false, uerr
@@ -98,9 +107,9 @@ type AvailableRelease struct {
 	Prerelease  bool      `json:"prerelease,omitempty"`
 }
 
-// listSelectableReleases は GitHub REST API から releases を取得し、selectableMinVersion 以上のみ返す。
+// ListSelectableReleases は GitHub REST API から releases を取得し、selectableMinVersion 以上のみ返す。
 // go-selfupdate に list API がないため直叩き。認証なし (public repo) で rate limit 60/h。
-func listSelectableReleases(ctx context.Context) ([]AvailableRelease, error) {
+func ListSelectableReleases(ctx context.Context) ([]AvailableRelease, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", "https://api.github.com/repos/BambooTuna/tmuxui/releases?per_page=100", nil)
 	if err != nil {
 		return nil, err
@@ -214,14 +223,14 @@ func restartSelf(exe string) error {
 	return syscall.Exec(exe, os.Args, os.Environ())
 }
 
-// runUpdate は `tmuxui update` CLI サブコマンドの実装。既存挙動(execveせず終了)を維持する薄いラッパー。
-func runUpdate() error {
-	if os.Getenv("TMUXUI_AUTOUPDATE") == "0" {
+// RunUpdateCLI は `tmuxui update` CLI サブコマンドの実装。既存挙動(execveせず終了)を維持する薄いラッパー。
+func RunUpdateCLI(version string) error {
+	if config.AutoUpdateDisabled() {
 		fmt.Println("auto-update disabled by TMUXUI_AUTOUPDATE=0")
 		return nil
 	}
 	ctx := context.Background()
-	latest, hasUpdate, err := checkForUpdate(ctx)
+	latest, hasUpdate, err := checkForUpdate(ctx, version)
 	if err != nil {
 		return err
 	}
@@ -253,12 +262,12 @@ type autoUpdatePrefs struct {
 	IntervalHours int
 }
 
-func loadAutoUpdatePrefs(prefs *Preferences) autoUpdatePrefs {
+func loadAutoUpdatePrefs(p *prefs.Preferences) autoUpdatePrefs {
 	out := autoUpdatePrefs{Enabled: true, AutoApply: false, IntervalHours: defaultIntervalHours}
-	if prefs == nil {
+	if p == nil {
 		return out
 	}
-	raw, ok := prefs.GetAll()["autoUpdate"].(map[string]any)
+	raw, ok := p.GetAll()["autoUpdate"].(map[string]any)
 	if !ok {
 		return out
 	}
@@ -282,21 +291,25 @@ func loadAutoUpdatePrefs(prefs *Preferences) autoUpdatePrefs {
 
 // UpdateManager は現在のアップデート状態を保持し、定期チェックと手動チェック/適用を仲介する。
 type UpdateManager struct {
+	version string
+
 	mu     sync.RWMutex
 	status UpdateStatus
-	prefs  *Preferences
-	hub    *Hub
-	kickCh chan struct{} // 手動チェック要求 (CheckNow から Run のループを起こす用、現状は直接実行するため主にRunの再評価トリガー)
+	prefs  *prefs.Preferences
+	hub    StatusBroadcaster
 	prefCh chan struct{} // preferences 変更通知
 }
 
-func newUpdateManager(prefs *Preferences, hub *Hub) *UpdateManager {
+// NewManager はversion(main.goのvar versionの値、goreleaserの-X main.versionで注入される)と、
+// 永続化されたPreferences、状態変化を通知するStatusBroadcaster(*hub.Hub)からUpdateManagerを組み立てる。
+// hubはnilでもよい(通知を送らないだけ)。
+func NewManager(version string, p *prefs.Preferences, hub StatusBroadcaster) *UpdateManager {
 	return &UpdateManager{
-		status: UpdateStatus{Current: version},
-		prefs:  prefs,
-		hub:    hub,
-		kickCh: make(chan struct{}, 1),
-		prefCh: make(chan struct{}, 1),
+		version: version,
+		status:  UpdateStatus{Current: version},
+		prefs:   p,
+		hub:     hub,
+		prefCh:  make(chan struct{}, 1),
 	}
 }
 
@@ -314,60 +327,58 @@ func (m *UpdateManager) setStatus(mutate func(*UpdateStatus)) UpdateStatus {
 	return s
 }
 
+func (m *UpdateManager) broadcast(status UpdateStatus) {
+	if m.hub != nil {
+		m.hub.BroadcastUpdateStatus(status)
+	}
+}
+
 // CheckNow は即時に最新リリースを取得し、状態を更新してから broadcast する。
 func (m *UpdateManager) CheckNow(ctx context.Context) (UpdateStatus, error) {
-	if os.Getenv("TMUXUI_AUTOUPDATE") == "0" {
-		return UpdateStatus{Current: version, LastError: "auto-update disabled by TMUXUI_AUTOUPDATE=0"}, nil
+	if config.AutoUpdateDisabled() {
+		return UpdateStatus{Current: m.version, LastError: "auto-update disabled by TMUXUI_AUTOUPDATE=0"}, nil
 	}
-	latest, hasUpdate, err := checkForUpdate(ctx)
+	latest, hasUpdate, err := checkForUpdate(ctx, m.version)
 	now := time.Now()
 	if err != nil {
 		status := m.setStatus(func(s *UpdateStatus) {
 			s.LastCheckedAt = now
 			s.LastError = err.Error()
 		})
-		if m.hub != nil {
-			m.hub.broadcastUpdateStatus(status)
-		}
+		m.broadcast(status)
 		return status, err
 	}
 	status := m.setStatus(func(s *UpdateStatus) {
-		s.Current = version
+		s.Current = m.version
 		s.Latest = latest.Version()
 		s.HasUpdate = hasUpdate
 		s.LastCheckedAt = now
 		s.LastError = ""
 	})
-	if m.hub != nil {
-		m.hub.broadcastUpdateStatus(status)
-	}
+	m.broadcast(status)
 	return status, nil
 }
 
 // ApplyNow は差し替えを実行し、成功したら500ms後にrestartSelfするgoroutineを起動する。
 func (m *UpdateManager) ApplyNow(ctx context.Context) (UpdateStatus, error) {
-	if os.Getenv("TMUXUI_AUTOUPDATE") == "0" {
-		return UpdateStatus{Current: version, LastError: "auto-update disabled by TMUXUI_AUTOUPDATE=0"}, nil
+	if config.AutoUpdateDisabled() {
+		return UpdateStatus{Current: m.version, LastError: "auto-update disabled by TMUXUI_AUTOUPDATE=0"}, nil
 	}
 	// apply後は/proc/self/exeがrename済みの.oldパスを返すため、apply前に元のパスを保存する
 	exe, _ := selfupdate.ExecutablePath()
-	latest, _, err := checkForUpdate(ctx)
+	latest, _, err := checkForUpdate(ctx, m.version)
 	if err != nil {
 		status := m.setStatus(func(s *UpdateStatus) {
 			s.LastError = err.Error()
 		})
-		if m.hub != nil {
-			m.hub.broadcastUpdateStatus(status)
-		}
+		m.broadcast(status)
 		return status, err
 	}
 	if err := applyUpdate(ctx, latest); err != nil {
 		status := m.setStatus(func(s *UpdateStatus) {
 			s.LastError = err.Error()
 		})
-		if m.hub != nil {
-			m.hub.broadcastUpdateStatus(status)
-		}
+		m.broadcast(status)
 		return status, err
 	}
 
@@ -379,9 +390,7 @@ func (m *UpdateManager) ApplyNow(ctx context.Context) (UpdateStatus, error) {
 		s.AppliedAt = now
 		s.LastError = ""
 	})
-	if m.hub != nil {
-		m.hub.broadcastUpdateStatus(status)
-	}
+	m.broadcast(status)
 
 	go func() {
 		time.Sleep(500 * time.Millisecond)
@@ -397,12 +406,12 @@ func (m *UpdateManager) ApplyNow(ctx context.Context) (UpdateStatus, error) {
 // selectableMinVersion 未満は弾く)。切替時は autoUpdate.autoApply を強制 OFF に更新し、
 // 次回チェックで latest に自動昇格して指定版が上書きされないようにする。
 func (m *UpdateManager) ApplyVersion(ctx context.Context, versionStr string) (UpdateStatus, error) {
-	if os.Getenv("TMUXUI_AUTOUPDATE") == "0" {
-		return UpdateStatus{Current: version, LastError: "auto-update disabled by TMUXUI_AUTOUPDATE=0"}, nil
+	if config.AutoUpdateDisabled() {
+		return UpdateStatus{Current: m.version, LastError: "auto-update disabled by TMUXUI_AUTOUPDATE=0"}, nil
 	}
 	if compareSemver(versionStr, selectableMinVersion) < 0 {
 		err := fmt.Errorf("version %s is below the minimum selectable version %s", versionStr, selectableMinVersion)
-		return UpdateStatus{Current: version, LastError: err.Error()}, err
+		return UpdateStatus{Current: m.version, LastError: err.Error()}, err
 	}
 
 	// apply後は/proc/self/exeが.oldを指すためapply前に元パスを保存
@@ -411,16 +420,12 @@ func (m *UpdateManager) ApplyVersion(ctx context.Context, versionStr string) (Up
 	rel, err := detectVersion(ctx, versionStr)
 	if err != nil {
 		status := m.setStatus(func(s *UpdateStatus) { s.LastError = err.Error() })
-		if m.hub != nil {
-			m.hub.broadcastUpdateStatus(status)
-		}
+		m.broadcast(status)
 		return status, err
 	}
 	if err := applyUpdate(ctx, rel); err != nil {
 		status := m.setStatus(func(s *UpdateStatus) { s.LastError = err.Error() })
-		if m.hub != nil {
-			m.hub.broadcastUpdateStatus(status)
-		}
+		m.broadcast(status)
 		return status, err
 	}
 
@@ -443,9 +448,7 @@ func (m *UpdateManager) ApplyVersion(ctx context.Context, versionStr string) (Up
 		s.AppliedAt = now
 		s.LastError = ""
 	})
-	if m.hub != nil {
-		m.hub.broadcastUpdateStatus(status)
-	}
+	m.broadcast(status)
 
 	go func() {
 		time.Sleep(500 * time.Millisecond)
@@ -464,10 +467,10 @@ func (m *UpdateManager) NotifyPreferenceChanged() {
 	}
 }
 
-// Run は定期チェックループ。ctx.Done()/prefCh/kickCh/timer.C を待ち受ける。
+// Run は定期チェックループ。ctx.Done()/prefCh/timer.C を待ち受ける。
 // enabled=false の場合は次回発火をずっと先に(=実質停止)して待つ。
 func (m *UpdateManager) Run(ctx context.Context) {
-	if os.Getenv("TMUXUI_AUTOUPDATE") == "0" {
+	if config.AutoUpdateDisabled() {
 		log.Println("auto-update disabled by TMUXUI_AUTOUPDATE=0")
 		return
 	}
@@ -488,8 +491,6 @@ func (m *UpdateManager) Run(ctx context.Context) {
 				}
 			}
 			timer.Reset(nextInterval(p))
-		case <-m.kickCh:
-			m.runCheckCycle(ctx, p)
 		case <-timer.C:
 			p = loadAutoUpdatePrefs(m.prefs)
 			m.runCheckCycle(ctx, p)

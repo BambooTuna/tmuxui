@@ -1,4 +1,7 @@
-package main
+// Package hub implements the WebSocket fan-out hub: it multiplexes pane content polling,
+// backend-native output streaming (via Subscribe), pane-list/update-status broadcasts, and
+// permission-detection notifications across all connected browser clients.
+package hub
 
 import (
 	"encoding/base64"
@@ -6,18 +9,21 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/BambooTuna/tmuxui/internal/backend"
+	"github.com/BambooTuna/tmuxui/internal/selfupdate"
 )
 
-func recoverAndLog(where string) {
-	if r := recover(); r != nil {
-		log.Printf("panic recovered in %s: %v\n%s", where, r, debug.Stack())
-	}
+// UpdateStatusProvider はWebSocket接続直後に送る初期update_statusメッセージの取得元。
+// selfupdate.Managerが実装する(このパッケージがinternal/selfupdateへ依存する方向のみで、
+// selfupdateからhubへの依存は発生しない)。
+type UpdateStatusProvider interface {
+	Status() selfupdate.UpdateStatus
 }
 
 var upgrader = websocket.Upgrader{
@@ -43,18 +49,18 @@ var upgrader = websocket.Upgrader{
 }
 
 type WSMessage struct {
-	Type         string        `json:"type"`
-	Target       string        `json:"target,omitempty"`
-	Content      string        `json:"content,omitempty"`
-	Data         string        `json:"data,omitempty"` // pane_snapshot/pane_outputのbase64本文
-	Ts           int64         `json:"ts,omitempty"`
-	Sessions     []Session     `json:"sessions,omitempty"`
-	Prompt       string        `json:"prompt,omitempty"`
-	Keys         string        `json:"keys,omitempty"`
-	Cols         int           `json:"cols,omitempty"`
-	Rows         int           `json:"rows,omitempty"`
-	Mode         string        `json:"mode,omitempty"` // subscribeの表示モード。"classic"のとき差分ストリーム(pane_snapshot/pane_output)を送らず、300ms tickのpane_contentだけに任せる。
-	UpdateStatus *UpdateStatus `json:"updateStatus,omitempty"`
+	Type         string                   `json:"type"`
+	Target       string                   `json:"target,omitempty"`
+	Content      string                   `json:"content,omitempty"`
+	Data         string                   `json:"data,omitempty"` // pane_snapshot/pane_outputのbase64本文
+	Ts           int64                    `json:"ts,omitempty"`
+	Sessions     []backend.Session        `json:"sessions,omitempty"`
+	Prompt       string                   `json:"prompt,omitempty"`
+	Keys         string                   `json:"keys,omitempty"`
+	Cols         int                      `json:"cols,omitempty"`
+	Rows         int                      `json:"rows,omitempty"`
+	Mode         string                   `json:"mode,omitempty"` // subscribeの表示モード。"classic"のとき差分ストリーム(pane_snapshot/pane_output)を送らず、300ms tickのpane_contentだけに任せる。
+	UpdateStatus *selfupdate.UpdateStatus `json:"updateStatus,omitempty"`
 }
 
 type Client struct {
@@ -95,14 +101,29 @@ type Hub struct {
 	mu          sync.RWMutex
 	clients     map[*Client]struct{}
 	prevContent map[string]string
-	registry    *BackendRegistry
+	// failedCapture はCapturePaneが直近失敗したtargetの集合。ログをtarget単位の状態変化時
+	// (失敗開始/復帰)のみに絞り、連続失敗でログが溢れるのを防ぐために使う。
+	failedCapture map[string]bool
+	registry      *backend.BackendRegistry
+	updates       UpdateStatusProvider
 }
 
-func newHub() *Hub {
+func New() *Hub {
 	return &Hub{
-		clients:     map[*Client]struct{}{},
-		prevContent: map[string]string{},
+		clients:       map[*Client]struct{}{},
+		prevContent:   map[string]string{},
+		failedCapture: map[string]bool{},
 	}
+}
+
+// SetRegistry はpane操作を委譲するBackendRegistryを設定する。main.goの組み立て時に1回呼ぶ。
+func (h *Hub) SetRegistry(r *backend.BackendRegistry) {
+	h.registry = r
+}
+
+// SetUpdates はWebSocket接続直後に送る初期update_statusメッセージの取得元を設定する。
+func (h *Hub) SetUpdates(u UpdateStatusProvider) {
+	h.updates = u
 }
 
 func (h *Hub) register(c *Client) {
@@ -119,18 +140,18 @@ func (h *Hub) unregister(c *Client) {
 	c.close()
 }
 
-func (h *Hub) run() {
+func (h *Hub) Run() {
 	ticker := time.NewTicker(300 * time.Millisecond)
 	defer ticker.Stop()
 	tick := 0
 	for range ticker.C {
 		func() {
-			defer recoverAndLog("hub.run tick")
+			defer backend.RecoverAndLog("hub.Run tick")
 			tick++
 			// 権限検知は現行tickを3回に1回に間引く(約1秒間隔)。表示用ポーリング自体は300msのまま維持する。
 			h.pollPanes(tick%3 == 0)
 			if tick%20 == 0 {
-				h.broadcastPaneList()
+				h.BroadcastPaneList()
 			}
 		}()
 	}
@@ -156,21 +177,40 @@ func (h *Hub) pollPanes(doDetect bool) {
 			delete(h.prevContent, t)
 		}
 	}
+	for t := range h.failedCapture {
+		if _, ok := targets[t]; !ok {
+			delete(h.failedCapture, t)
+		}
+	}
 	h.mu.Unlock()
 
 	for target, clients := range targets {
-		backend, native, err := h.registry.Resolve(target)
+		be, native, err := h.registry.Resolve(target)
 		if err != nil {
 			continue
 		}
 
-		if pc, err := backend.CapturePane(native); err == nil {
+		pc, err := be.CapturePane(native)
+		if err != nil {
 			h.mu.Lock()
+			wasFailing := h.failedCapture[target]
+			h.failedCapture[target] = true
+			h.mu.Unlock()
+			if !wasFailing {
+				log.Printf("hub: CapturePane(%s) failed: %v", target, err)
+			}
+		} else {
+			h.mu.Lock()
+			wasFailing := h.failedCapture[target]
+			delete(h.failedCapture, target)
 			changed := h.prevContent[target] != pc.Content
 			if changed {
 				h.prevContent[target] = pc.Content
 			}
 			h.mu.Unlock()
+			if wasFailing {
+				log.Printf("hub: CapturePane(%s) recovered", target)
+			}
 
 			if changed {
 				msg, _ := json.Marshal(WSMessage{
@@ -183,10 +223,10 @@ func (h *Hub) pollPanes(doDetect bool) {
 			}
 		}
 
-		if !doDetect || !backend.SupportsTextPermissionDetection() {
+		if !doDetect || !be.SupportsTextPermissionDetection() {
 			continue
 		}
-		plain, err := backend.CapturePanePlain(native)
+		plain, err := be.CapturePanePlain(native)
 		if err != nil {
 			continue
 		}
@@ -201,7 +241,7 @@ func (h *Hub) pollPanes(doDetect bool) {
 	}
 }
 
-func (h *Hub) broadcastPaneList() {
+func (h *Hub) BroadcastPaneList() {
 	sessions, err := h.registry.ListSessions()
 	if err != nil {
 		return
@@ -218,8 +258,9 @@ func (h *Hub) broadcastPaneList() {
 	h.sendToClients(clients, msg)
 }
 
-// broadcastUpdateStatus はアップデート状態を全クライアントへ通知する。broadcastPaneList と同じ流儀。
-func (h *Hub) broadcastUpdateStatus(status UpdateStatus) {
+// BroadcastUpdateStatus はアップデート状態を全クライアントへ通知する。BroadcastPaneList と同じ流儀。
+// selfupdate.StatusBroadcaster インターフェースを満たす。
+func (h *Hub) BroadcastUpdateStatus(status selfupdate.UpdateStatus) {
 	msg, _ := json.Marshal(WSMessage{Type: "update_status", UpdateStatus: &status})
 
 	h.mu.RLock()
@@ -238,27 +279,29 @@ func (h *Hub) sendToClients(clients []*Client, msg []byte) {
 	}
 }
 
-func handleWS(hub *Hub, w http.ResponseWriter, r *http.Request) {
+// HandleWS はWebSocketアップグレード + クライアント登録 + 初期状態送信 + 読み取りループを行う。
+// httpapiパッケージから "/ws" のハンドラとしてそのまま登録される。
+func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
 	c := &Client{
-		hub:  hub,
+		hub:  h,
 		conn: conn,
 		send: make(chan []byte, 64),
 		done: make(chan struct{}),
 	}
-	hub.register(c)
+	h.register(c)
 	go c.writePump()
 
-	if sessions, err := hub.registry.ListSessions(); err == nil {
+	if sessions, err := h.registry.ListSessions(); err == nil {
 		if msg, err := json.Marshal(WSMessage{Type: "pane_list", Sessions: sessions}); err == nil {
 			c.trySend(msg)
 		}
 	}
-	if globalUpdateManager != nil {
-		status := globalUpdateManager.Status()
+	if h.updates != nil {
+		status := h.updates.Status()
 		if msg, err := json.Marshal(WSMessage{Type: "update_status", UpdateStatus: &status}); err == nil {
 			c.trySend(msg)
 		}
@@ -269,7 +312,7 @@ func handleWS(hub *Hub, w http.ResponseWriter, r *http.Request) {
 
 func (c *Client) readPump() {
 	defer c.hub.unregister(c)
-	defer recoverAndLog("readPump")
+	defer backend.RecoverAndLog("hub.readPump")
 	for {
 		_, data, err := c.conn.ReadMessage()
 		if err != nil {
@@ -290,8 +333,8 @@ func (c *Client) readPump() {
 			if msg.Cols > 0 && msg.Rows > 0 {
 				c.hub.resize(msg.Target, msg.Cols, msg.Rows)
 			}
-			if backend, native, err := c.hub.registry.Resolve(msg.Target); err == nil {
-				if pc, err := backend.CapturePane(native); err == nil {
+			if be, native, err := c.hub.registry.Resolve(msg.Target); err == nil {
+				if pc, err := be.CapturePane(native); err == nil {
 					out, _ := json.Marshal(WSMessage{
 						Type:    "pane_content",
 						Target:  msg.Target,
@@ -318,17 +361,17 @@ func (c *Client) readPump() {
 				c.hub.resize(msg.Target, msg.Cols, msg.Rows)
 			}
 		case "send_keys":
-			backend, native, err := c.hub.registry.Resolve(msg.Target)
+			be, native, err := c.hub.registry.Resolve(msg.Target)
 			if err != nil {
 				continue
 			}
-			backend.SendKeys(native, msg.Keys)
+			be.SendKeys(native, msg.Keys)
 		case "refresh":
-			backend, native, err := c.hub.registry.Resolve(msg.Target)
+			be, native, err := c.hub.registry.Resolve(msg.Target)
 			if err != nil {
 				continue
 			}
-			if pc, err := backend.CapturePane(native); err == nil {
+			if pc, err := be.CapturePane(native); err == nil {
 				out, _ := json.Marshal(WSMessage{
 					Type:    "pane_content",
 					Target:  msg.Target,
@@ -343,7 +386,7 @@ func (c *Client) readPump() {
 
 func (c *Client) writePump() {
 	defer c.conn.Close()
-	defer recoverAndLog("writePump")
+	defer backend.RecoverAndLog("hub.writePump")
 	for {
 		select {
 		case <-c.done:
@@ -361,11 +404,11 @@ func (h *Hub) resize(target string, cols, rows int) {
 	if h.registry == nil {
 		return
 	}
-	backend, native, err := h.registry.Resolve(target)
+	be, native, err := h.registry.Resolve(target)
 	if err != nil {
 		return
 	}
-	backend.Resize(native, cols, rows)
+	be.Resize(native, cols, rows)
 }
 
 // stopSubscription は現在のbackend購読(あれば)を破棄する。新規subscribe/unsubscribe/切断時に呼ぶ。
@@ -403,12 +446,13 @@ func (c *Client) startSubscription(target string) {
 // 有効(gen一致)である限りSubscribeからやり直してフルリシンクする。
 // rawTargetはクライアントに送り返す(プレフィックス付きの)target、nativeはbackend呼び出し用。
 func (c *Client) runSubscription(gen uint64, rawTarget string) {
-	backend, native, err := c.hub.registry.Resolve(rawTarget)
+	defer backend.RecoverAndLog("hub.runSubscription")
+	be, native, err := c.hub.registry.Resolve(rawTarget)
 	if err != nil {
 		return
 	}
 	for {
-		stream, cancel, err := backend.Subscribe(native)
+		stream, cancel, err := be.Subscribe(native)
 		if err != nil {
 			return
 		}
@@ -426,7 +470,7 @@ func (c *Client) runSubscription(gen uint64, rawTarget string) {
 		// 先に捨てないと二重適用で画面が化ける
 		drainStream(stream)
 		resyncing := false
-		if snap, cols, rows, err := backend.Snapshot(native); err == nil {
+		if snap, cols, rows, err := be.Snapshot(native); err == nil {
 			if !c.sendDrop(snapshotMessage(rawTarget, snap, cols, rows)) {
 				resyncing = true
 			}
@@ -437,7 +481,7 @@ func (c *Client) runSubscription(gen uint64, rawTarget string) {
 		for data := range stream {
 			if resyncing {
 				drainStream(stream)
-				snap, cols, rows, err := backend.Snapshot(native)
+				snap, cols, rows, err := be.Snapshot(native)
 				if err != nil {
 					continue
 				}

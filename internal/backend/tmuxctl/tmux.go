@@ -1,4 +1,6 @@
-package main
+// Package tmuxctl implements backend.PaneBackend using tmux control mode
+// (`tmux -C attach-session`) plus plain `tmux` CLI invocations for CRUD operations.
+package tmuxctl
 
 import (
 	"fmt"
@@ -8,11 +10,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
-)
 
-// snapshotHistoryLines はcapture-paneで遡る行数。tmuxui発セッションではデフォルトの
-// history-limit(2000)のままだとこの行数まで遡れないため、newSession()で同じ値まで引き上げる。
-const snapshotHistoryLines = 20000
+	"github.com/BambooTuna/tmuxui/internal/backend"
+)
 
 var validTarget = regexp.MustCompile(`^[a-zA-Z0-9_:.\-]+$`)
 
@@ -20,50 +20,7 @@ func isValidTarget(s string) bool {
 	return s != "" && validTarget.MatchString(s)
 }
 
-type Pane struct {
-	Target string `json:"target"`
-	ID     string `json:"id"`
-	Title  string `json:"title"`
-	Cmd    string `json:"cmd"`
-	Size   string `json:"size"`
-	Path   string `json:"path"`
-	// Agent/AgentStatus はherdrバックエンドのみが設定する(agent種別/idle・working・blocked・done・unknown)。
-	// tmuxバックエンドでは常に空文字列のままで、後方互換性に影響しない。
-	Agent       string `json:"agent,omitempty"`
-	AgentStatus string `json:"agent_status,omitempty"`
-}
-
-type Window struct {
-	Index  int    `json:"index"`
-	ID     string `json:"id"`
-	Name   string `json:"name"`
-	Active bool   `json:"active"`
-	// AgentStatus はherdrのtab.list由来のウィンドウ単位の集約状態(herdrバックエンドのみ設定)。
-	AgentStatus string `json:"agent_status,omitempty"`
-	Panes       []Pane `json:"panes"`
-}
-
-type Session struct {
-	Name     string `json:"name"`
-	Backend  string `json:"backend"`
-	Attached bool   `json:"attached"`
-	// DisplayName はUI表示用のラベル(herdrのworkspace.label)。空ならフロントエンドはNameにフォールバックする。
-	DisplayName string `json:"display_name,omitempty"`
-	// AgentStatus はherdrのworkspace.list由来のセッション単位の集約状態(herdrバックエンドのみ設定)。
-	AgentStatus string `json:"agent_status,omitempty"`
-	// WorktreeLabel はherdrのworktree情報から組み立てた表示用ラベル(例: "repo · branch")。
-	WorktreeLabel string   `json:"worktree_label,omitempty"`
-	Windows       []Window `json:"windows"`
-}
-
-type PaneContent struct {
-	Target  string `json:"target"`
-	Content string `json:"content"`
-	Lines   int    `json:"lines"`
-	Ts      int64  `json:"ts"`
-}
-
-func listSessions() ([]Session, error) {
+func listSessions() ([]backend.Session, error) {
 	sessOut, err := exec.Command("tmux", "list-sessions",
 		"-F", "#{session_name}\t#{session_attached}").Output()
 	if err != nil {
@@ -102,7 +59,7 @@ func listSessions() ([]Session, error) {
 		id     string
 		name   string
 		active bool
-		panes  []Pane
+		panes  []backend.Pane
 	}
 	winMap := map[winKey]*winEntry{}
 	winOrder := map[string][]int{}
@@ -125,7 +82,7 @@ func listSessions() ([]Session, error) {
 		}
 		target := fmt.Sprintf("%s:%d.%s", sessName, winIdx, parts[5])
 		size := fmt.Sprintf("%sx%s", parts[7], parts[8])
-		pane := Pane{Target: target, ID: paneID, Title: paneTitle, Cmd: parts[6], Size: size, Path: parts[9]}
+		pane := backend.Pane{Target: target, ID: paneID, Title: paneTitle, Cmd: parts[6], Size: size, Path: parts[9]}
 
 		key := winKey{session: sessName, index: winIdx}
 		if _, ok := winMap[key]; !ok {
@@ -135,14 +92,14 @@ func listSessions() ([]Session, error) {
 		winMap[key].panes = append(winMap[key].panes, pane)
 	}
 
-	sessions := make([]Session, 0, len(sessOrder))
+	sessions := make([]backend.Session, 0, len(sessOrder))
 	for _, sessName := range sessOrder {
 		e := sessMap[sessName]
-		windows := make([]Window, 0)
+		windows := make([]backend.Window, 0)
 		for _, winIdx := range winOrder[sessName] {
 			key := winKey{session: sessName, index: winIdx}
 			we := winMap[key]
-			windows = append(windows, Window{
+			windows = append(windows, backend.Window{
 				Index:  winIdx,
 				ID:     we.id,
 				Name:   we.name,
@@ -150,7 +107,7 @@ func listSessions() ([]Session, error) {
 				Panes:  we.panes,
 			})
 		}
-		sessions = append(sessions, Session{
+		sessions = append(sessions, backend.Session{
 			Name:     sessName,
 			Attached: e.attached,
 			Windows:  windows,
@@ -159,13 +116,13 @@ func listSessions() ([]Session, error) {
 	return sessions, nil
 }
 
-func capturePane(target string) (*PaneContent, error) {
-	out, err := exec.Command("tmux", "capture-pane", "-t", target, "-p", "-e", "-S", "-"+strconv.Itoa(snapshotHistoryLines)).Output()
+func capturePane(target string) (*backend.PaneContent, error) {
+	out, err := exec.Command("tmux", "capture-pane", "-t", target, "-p", "-e", "-S", "-"+strconv.Itoa(backend.SnapshotHistoryLines)).Output()
 	if err != nil {
 		return nil, err
 	}
 	content := string(out)
-	return &PaneContent{
+	return &backend.PaneContent{
 		Target:  target,
 		Content: content,
 		Lines:   strings.Count(content, "\n"),
@@ -220,10 +177,10 @@ func newSession(name, dir string) error {
 	if err := exec.Command("tmux", args...).Run(); err != nil {
 		return err
 	}
-	// デフォルトのhistory-limit(2000)のままだとsnapshotHistoryLines分を遡れないため、
+	// デフォルトのhistory-limit(2000)のままだとSnapshotHistoryLines分を遡れないため、
 	// このセッションのみ引き上げる(-gはユーザーの他セッションにも影響するため使わない)。
 	// セッション自体は既に作成済みのため、ここが失敗してもエラーにはせずログのみに留める。
-	if err := exec.Command("tmux", "set-option", "-t", name, "history-limit", strconv.Itoa(snapshotHistoryLines)).Run(); err != nil {
+	if err := exec.Command("tmux", "set-option", "-t", name, "history-limit", strconv.Itoa(backend.SnapshotHistoryLines)).Run(); err != nil {
 		log.Printf("newSession: failed to raise history-limit for %q: %v", name, err)
 	}
 	return nil

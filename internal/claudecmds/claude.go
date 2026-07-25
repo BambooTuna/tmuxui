@@ -1,4 +1,6 @@
-package main
+// Package claudecmds discovers Claude Code's built-in slash commands, either by scanning
+// strings out of the installed `claude` binary or falling back to a hardcoded list.
+package claudecmds
 
 import (
 	"os/exec"
@@ -7,31 +9,32 @@ import (
 	"sync"
 )
 
-type ClaudeCommand struct {
+type Command struct {
 	Name string `json:"name"`
 	Desc string `json:"description"`
 }
 
 var (
-	claudeOnce     sync.Once
-	claudeCommands []ClaudeCommand
+	once sync.Once
+	all  []Command
 )
 
-func loadClaudeCommands() []ClaudeCommand {
-	claudeOnce.Do(func() {
+// Load はClaude Codeのスラッシュコマンド一覧を返す(初回呼び出し時にのみ実際に解析し、以降はキャッシュを返す)。
+func Load() []Command {
+	once.Do(func() {
 		cmds := parseFromBinary()
 		if len(cmds) < 10 {
-			cmds = defaultClaudeCommands()
+			cmds = defaultCommands()
 		}
-		claudeCommands = cmds
+		all = cmds
 	})
-	return claudeCommands
+	return all
 }
 
 var cmdPattern = regexp.MustCompile(`name:"([^"]+)",description:"([^"]+)"`)
 var validName = regexp.MustCompile(`^[a-z][a-z-]*$`)
 
-func parseFromBinary() []ClaudeCommand {
+func parseFromBinary() []Command {
 	path, err := exec.LookPath("claude")
 	if err != nil {
 		return nil
@@ -43,7 +46,7 @@ func parseFromBinary() []ClaudeCommand {
 	}
 
 	seen := map[string]bool{}
-	var cmds []ClaudeCommand
+	var cmds []Command
 	for _, m := range cmdPattern.FindAllStringSubmatch(string(out), -1) {
 		name, desc := m[1], m[2]
 		if len(name) > 25 {
@@ -56,14 +59,14 @@ func parseFromBinary() []ClaudeCommand {
 			continue
 		}
 		seen[name] = true
-		cmds = append(cmds, ClaudeCommand{Name: name, Desc: desc})
+		cmds = append(cmds, Command{Name: name, Desc: desc})
 	}
 	sort.Slice(cmds, func(i, j int) bool { return cmds[i].Name < cmds[j].Name })
 	return cmds
 }
 
-func defaultClaudeCommands() []ClaudeCommand {
-	return []ClaudeCommand{
+func defaultCommands() []Command {
+	return []Command{
 		{Name: "bug", Desc: "Report a bug"},
 		{Name: "clear", Desc: "Clear conversation history"},
 		{Name: "compact", Desc: "Compact conversation"},

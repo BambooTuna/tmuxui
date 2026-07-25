@@ -1,4 +1,4 @@
-package main
+package backend
 
 import (
 	"errors"
@@ -44,9 +44,9 @@ func (f *fakeBackend) ValidTarget(s string) bool {
 func (f *fakeBackend) SupportsTextPermissionDetection() bool { return true }
 
 func TestBackendRegistryResolveWithPrefix(t *testing.T) {
-	reg := newBackendRegistry("tmux")
+	reg := NewBackendRegistry("tmux")
 	tmuxBackend := &fakeBackend{}
-	reg.register("tmux", tmuxBackend)
+	reg.Register("tmux", tmuxBackend)
 
 	b, native, err := reg.Resolve("tmux:main:0.%1")
 	if err != nil {
@@ -61,9 +61,9 @@ func TestBackendRegistryResolveWithPrefix(t *testing.T) {
 }
 
 func TestBackendRegistryResolveWithoutPrefixUsesFallback(t *testing.T) {
-	reg := newBackendRegistry("tmux")
+	reg := NewBackendRegistry("tmux")
 	tmuxBackend := &fakeBackend{}
-	reg.register("tmux", tmuxBackend)
+	reg.Register("tmux", tmuxBackend)
 
 	b, native, err := reg.Resolve("main:0.%1")
 	if err != nil {
@@ -78,9 +78,9 @@ func TestBackendRegistryResolveWithoutPrefixUsesFallback(t *testing.T) {
 }
 
 func TestBackendRegistryResolveUnknownPrefixUsesFallback(t *testing.T) {
-	reg := newBackendRegistry("tmux")
+	reg := NewBackendRegistry("tmux")
 	tmuxBackend := &fakeBackend{}
-	reg.register("tmux", tmuxBackend)
+	reg.Register("tmux", tmuxBackend)
 
 	// "herdr" is not a registered prefix, so the whole id is treated as a
 	// fallback-native identifier (back-compat with pre-prefix clients/URLs).
@@ -97,8 +97,8 @@ func TestBackendRegistryResolveUnknownPrefixUsesFallback(t *testing.T) {
 }
 
 func TestBackendRegistryResolveEmptyID(t *testing.T) {
-	reg := newBackendRegistry("tmux")
-	reg.register("tmux", &fakeBackend{})
+	reg := NewBackendRegistry("tmux")
+	reg.Register("tmux", &fakeBackend{})
 
 	if _, _, err := reg.Resolve(""); err == nil {
 		t.Fatalf("Resolve(\"\"): expected error, got nil")
@@ -106,9 +106,9 @@ func TestBackendRegistryResolveEmptyID(t *testing.T) {
 }
 
 func TestBackendRegistryResolveInvalidTarget(t *testing.T) {
-	reg := newBackendRegistry("tmux")
+	reg := NewBackendRegistry("tmux")
 	tmuxBackend := &fakeBackend{validTargetFn: func(s string) bool { return false }}
-	reg.register("tmux", tmuxBackend)
+	reg.Register("tmux", tmuxBackend)
 
 	if _, _, err := reg.Resolve("tmux:bad target"); err == nil {
 		t.Fatalf("Resolve: expected error for invalid target, got nil")
@@ -119,7 +119,7 @@ func TestBackendRegistryResolveInvalidTarget(t *testing.T) {
 }
 
 func TestBackendRegistryResolveFallbackNotRegistered(t *testing.T) {
-	reg := newBackendRegistry("tmux")
+	reg := NewBackendRegistry("tmux")
 	// No backend registered at all, including the fallback.
 	if _, _, err := reg.Resolve("main:0.%1"); err == nil {
 		t.Fatalf("Resolve: expected error when fallback backend is not registered, got nil")
@@ -127,7 +127,7 @@ func TestBackendRegistryResolveFallbackNotRegistered(t *testing.T) {
 }
 
 func TestBackendRegistryListSessionsMerges(t *testing.T) {
-	reg := newBackendRegistry("tmux")
+	reg := NewBackendRegistry("tmux")
 
 	tmuxSessions := []Session{{
 		Name: "s1",
@@ -146,8 +146,8 @@ func TestBackendRegistryListSessionsMerges(t *testing.T) {
 
 	tmuxBackend := &fakeBackend{sessions: tmuxSessions}
 	herdrBackend := &fakeBackend{sessions: herdrSessions}
-	reg.register("tmux", tmuxBackend)
-	reg.register("herdr", herdrBackend)
+	reg.Register("tmux", tmuxBackend)
+	reg.Register("herdr", herdrBackend)
 
 	merged, err := reg.ListSessions()
 	if err != nil {
@@ -194,12 +194,12 @@ func TestBackendRegistryListSessionsMerges(t *testing.T) {
 }
 
 func TestBackendRegistryListSessionsPartialErrorStillReturnsOthers(t *testing.T) {
-	reg := newBackendRegistry("tmux")
+	reg := NewBackendRegistry("tmux")
 
 	tmuxBackend := &fakeBackend{sessions: []Session{{Name: "s1"}}}
 	herdrBackend := &fakeBackend{sessionsErr: errors.New("herdr socket unavailable")}
-	reg.register("tmux", tmuxBackend)
-	reg.register("herdr", herdrBackend)
+	reg.Register("tmux", tmuxBackend)
+	reg.Register("herdr", herdrBackend)
 
 	merged, err := reg.ListSessions()
 	if err != nil {
@@ -211,11 +211,11 @@ func TestBackendRegistryListSessionsPartialErrorStillReturnsOthers(t *testing.T)
 }
 
 func TestBackendRegistryListSessionsAllErrorsReturnsError(t *testing.T) {
-	reg := newBackendRegistry("tmux")
+	reg := NewBackendRegistry("tmux")
 
 	wantErr := errors.New("tmux unavailable")
 	tmuxBackend := &fakeBackend{sessionsErr: wantErr}
-	reg.register("tmux", tmuxBackend)
+	reg.Register("tmux", tmuxBackend)
 
 	if _, err := reg.ListSessions(); err == nil {
 		t.Fatalf("ListSessions: expected error when the only backend fails, got nil")
@@ -223,8 +223,8 @@ func TestBackendRegistryListSessionsAllErrorsReturnsError(t *testing.T) {
 }
 
 func TestBackendRegistryValidTarget(t *testing.T) {
-	reg := newBackendRegistry("tmux")
-	reg.register("tmux", &fakeBackend{})
+	reg := NewBackendRegistry("tmux")
+	reg.Register("tmux", &fakeBackend{})
 
 	if !reg.ValidTarget("tmux:main:0.%1") {
 		t.Errorf("ValidTarget(prefixed): got false, want true")

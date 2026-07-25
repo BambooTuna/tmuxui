@@ -1,4 +1,4 @@
-package main
+package herdr
 
 import (
 	"bufio"
@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/BambooTuna/tmuxui/internal/backend"
 )
 
 // fakeHerdrServer is a minimal fake herdr socket server for protocol-level tests.
@@ -215,7 +217,7 @@ func TestHerdrBackendListSessionsMapsWorkspaceTabPane(t *testing.T) {
 		}, "", ""
 	})
 
-	b := newHerdrBackend(s.socketPath())
+	b := New(s.socketPath())
 	defer b.Close()
 
 	sessions, err := b.ListSessions()
@@ -310,14 +312,14 @@ func TestHerdrBackendListSessionsMapsWorktreeLabel(t *testing.T) {
 		return map[string]interface{}{"panes": []map[string]interface{}{}}, "", ""
 	})
 
-	b := newHerdrBackend(s.socketPath())
+	b := New(s.socketPath())
 	defer b.Close()
 
 	sessions, err := b.ListSessions()
 	if err != nil {
 		t.Fatalf("ListSessions: %v", err)
 	}
-	byName := map[string]Session{}
+	byName := map[string]backend.Session{}
 	for _, s := range sessions {
 		byName[s.Name] = s
 	}
@@ -338,7 +340,7 @@ func TestHerdrBackendListSessionsPropagatesError(t *testing.T) {
 	s.on("workspace.list", func(json.RawMessage) (interface{}, string, string) {
 		return nil, "internal_error", "boom"
 	})
-	b := newHerdrBackend(s.socketPath())
+	b := New(s.socketPath())
 	defer b.Close()
 
 	if _, err := b.ListSessions(); err == nil {
@@ -355,7 +357,7 @@ func TestHerdrBackendSendKeysSpecialKey(t *testing.T) {
 		gotParams = params
 		return map[string]string{"type": "ok"}, "", ""
 	})
-	b := newHerdrBackend(s.socketPath())
+	b := New(s.socketPath())
 	defer b.Close()
 
 	if err := b.SendKeys("w1:p1", "Enter"); err != nil {
@@ -384,7 +386,7 @@ func TestHerdrBackendSendKeysCtrlChord(t *testing.T) {
 		gotKeys = p.Keys
 		return map[string]string{"type": "ok"}, "", ""
 	})
-	b := newHerdrBackend(s.socketPath())
+	b := New(s.socketPath())
 	defer b.Close()
 
 	if err := b.SendKeys("w1:p1", "C-c"); err != nil {
@@ -411,7 +413,7 @@ func TestHerdrBackendSendKeysUnsupportedNamedKeyFallsBackToRawEscape(t *testing.
 		gotText = p.Text
 		return map[string]string{"type": "ok"}, "", ""
 	})
-	b := newHerdrBackend(s.socketPath())
+	b := New(s.socketPath())
 	defer b.Close()
 
 	// PPage (Page Up) is not in herdr's pane.send_keys vocabulary (confirmed against the
@@ -439,7 +441,7 @@ func TestHerdrBackendSendKeysLiteralText(t *testing.T) {
 		gotText = p.Text
 		return map[string]string{"type": "ok"}, "", ""
 	})
-	b := newHerdrBackend(s.socketPath())
+	b := New(s.socketPath())
 	defer b.Close()
 
 	if err := b.SendKeys("w1:p1", "echo hi\n"); err != nil {
@@ -456,7 +458,7 @@ func TestHerdrBackendSendKeysLiteralText(t *testing.T) {
 // detected" notifications: herdr panes carry their own structured agent_status, so the Hub's
 // text-heuristic detectPermission (websocket.go pollPanes) must skip herdr-backed targets.
 func TestHerdrBackendSupportsTextPermissionDetectionIsFalse(t *testing.T) {
-	b := newHerdrBackend("/nonexistent.sock")
+	b := New("/nonexistent.sock")
 	defer b.Close()
 	if b.SupportsTextPermissionDetection() {
 		t.Error("HerdrBackend.SupportsTextPermissionDetection() = true, want false")
@@ -466,7 +468,7 @@ func TestHerdrBackendSupportsTextPermissionDetectionIsFalse(t *testing.T) {
 // --- ValidTarget ---
 
 func TestHerdrBackendValidTarget(t *testing.T) {
-	b := newHerdrBackend("/nonexistent.sock")
+	b := New("/nonexistent.sock")
 	defer b.Close()
 
 	cases := []struct {
@@ -501,7 +503,7 @@ func TestHerdrBackendSubscribeDeliversChangedContent(t *testing.T) {
 		}, "", ""
 	})
 
-	b := newHerdrBackend(s.socketPath())
+	b := New(s.socketPath())
 	defer b.Close()
 
 	stream, cancel, err := b.Subscribe("w1:p1")
@@ -538,7 +540,7 @@ func TestHerdrBackendSubscribeCancelClosesChannel(t *testing.T) {
 	s.on("pane.read", func(json.RawMessage) (interface{}, string, string) {
 		return map[string]interface{}{"read": map[string]string{"text": "x"}}, "", ""
 	})
-	b := newHerdrBackend(s.socketPath())
+	b := New(s.socketPath())
 	defer b.Close()
 
 	stream, cancel, err := b.Subscribe("w1:p1")
@@ -569,7 +571,7 @@ func TestHerdrBackendNewSession(t *testing.T) {
 		json.Unmarshal(params, &got)
 		return map[string]interface{}{"workspace": map[string]interface{}{"workspace_id": "wNew"}}, "", ""
 	})
-	b := newHerdrBackend(s.socketPath())
+	b := New(s.socketPath())
 	defer b.Close()
 
 	if err := b.NewSession("myproj", "/tmp/dir"); err != nil {
@@ -587,7 +589,7 @@ func TestHerdrBackendKillSession(t *testing.T) {
 		json.Unmarshal(params, &got)
 		return map[string]interface{}{"type": "ok"}, "", ""
 	})
-	b := newHerdrBackend(s.socketPath())
+	b := New(s.socketPath())
 	defer b.Close()
 
 	if err := b.KillSession("w1"); err != nil {
@@ -605,7 +607,7 @@ func TestHerdrBackendRenameSession(t *testing.T) {
 		json.Unmarshal(params, &got)
 		return map[string]interface{}{"type": "ok"}, "", ""
 	})
-	b := newHerdrBackend(s.socketPath())
+	b := New(s.socketPath())
 	defer b.Close()
 
 	if err := b.RenameSession("w1", "newlabel"); err != nil {
@@ -623,7 +625,7 @@ func TestHerdrBackendNewWindow(t *testing.T) {
 		json.Unmarshal(params, &got)
 		return map[string]interface{}{"tab": map[string]interface{}{"tab_id": "w1:t2"}}, "", ""
 	})
-	b := newHerdrBackend(s.socketPath())
+	b := New(s.socketPath())
 	defer b.Close()
 
 	if err := b.NewWindow("w1", "mytab"); err != nil {
@@ -649,10 +651,10 @@ func TestHerdrBackendKillWindowResolvesTabID(t *testing.T) {
 		json.Unmarshal(params, &got)
 		return map[string]interface{}{"type": "ok"}, "", ""
 	})
-	b := newHerdrBackend(s.socketPath())
+	b := New(s.socketPath())
 	defer b.Close()
 
-	// handler.go builds this target as native(workspace_id) + ":" + Window.Index (tab.number).
+	// handler builds this target as native(workspace_id) + ":" + Window.Index (tab.number).
 	if err := b.KillWindow("w1:2"); err != nil {
 		t.Fatalf("KillWindow: %v", err)
 	}
@@ -666,7 +668,7 @@ func TestHerdrBackendKillWindowUnknownIndexErrors(t *testing.T) {
 	s.on("tab.list", func(json.RawMessage) (interface{}, string, string) {
 		return map[string]interface{}{"tabs": []map[string]interface{}{}}, "", ""
 	})
-	b := newHerdrBackend(s.socketPath())
+	b := New(s.socketPath())
 	defer b.Close()
 
 	if err := b.KillWindow("w1:99"); err == nil {
@@ -681,7 +683,7 @@ func TestHerdrBackendKillPane(t *testing.T) {
 		json.Unmarshal(params, &got)
 		return map[string]interface{}{"type": "ok"}, "", ""
 	})
-	b := newHerdrBackend(s.socketPath())
+	b := New(s.socketPath())
 	defer b.Close()
 
 	if err := b.KillPane("w1:p1"); err != nil {
@@ -704,7 +706,7 @@ func TestHerdrBackendSplitPaneUsesTargetPaneIDDirectly(t *testing.T) {
 		json.Unmarshal(params, &splitParams)
 		return map[string]interface{}{"type": "ok"}, "", ""
 	})
-	b := newHerdrBackend(s.socketPath())
+	b := New(s.socketPath())
 	defer b.Close()
 
 	if err := b.SplitPane("w1:p1", true); err != nil {
@@ -734,7 +736,7 @@ func TestHerdrBackendSplitPaneVerticalDirection(t *testing.T) {
 		json.Unmarshal(params, &splitParams)
 		return map[string]interface{}{"type": "ok"}, "", ""
 	})
-	b := newHerdrBackend(s.socketPath())
+	b := New(s.socketPath())
 	defer b.Close()
 
 	if err := b.SplitPane("w1:p1", false); err != nil {
@@ -754,7 +756,7 @@ func TestHerdrBackendResizeIsNoop(t *testing.T) {
 		called = true
 		return map[string]interface{}{"type": "ok"}, "", ""
 	})
-	b := newHerdrBackend(s.socketPath())
+	b := New(s.socketPath())
 	defer b.Close()
 
 	if err := b.Resize("w1:p1", 80, 24); err != nil {
@@ -766,10 +768,10 @@ func TestHerdrBackendResizeIsNoop(t *testing.T) {
 }
 
 func TestHerdrBackendSyncSessionsIsNoop(t *testing.T) {
-	b := newHerdrBackend("/nonexistent.sock")
+	b := New("/nonexistent.sock")
 	defer b.Close()
 	// Must not panic and must not require any socket connectivity.
-	b.SyncSessions([]Session{{Name: "whatever"}})
+	b.SyncSessions([]backend.Session{{Name: "whatever"}})
 }
 
 // --- socket path resolution ---
@@ -779,8 +781,8 @@ func TestDefaultHerdrSocketPathRespectsEnvOverride(t *testing.T) {
 	defer os.Setenv("HERDR_SOCKET_PATH", old)
 
 	os.Setenv("HERDR_SOCKET_PATH", "/custom/herdr.sock")
-	if got := defaultHerdrSocketPath(); got != "/custom/herdr.sock" {
-		t.Errorf("defaultHerdrSocketPath() = %q, want /custom/herdr.sock", got)
+	if got := DefaultSocketPath(); got != "/custom/herdr.sock" {
+		t.Errorf("DefaultSocketPath() = %q, want /custom/herdr.sock", got)
 	}
 }
 
@@ -794,9 +796,9 @@ func TestDefaultHerdrSocketPathUsesSessionSubdir(t *testing.T) {
 
 	os.Unsetenv("HERDR_SOCKET_PATH")
 	os.Setenv("HERDR_SESSION", "mysession")
-	got := defaultHerdrSocketPath()
+	got := DefaultSocketPath()
 	want := filepath.Join(".config", "herdr", "sessions", "mysession", "herdr.sock")
 	if len(got) < len(want) || got[len(got)-len(want):] != want {
-		t.Errorf("defaultHerdrSocketPath() = %q, want suffix %q", got, want)
+		t.Errorf("DefaultSocketPath() = %q, want suffix %q", got, want)
 	}
 }

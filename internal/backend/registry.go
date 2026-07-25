@@ -1,4 +1,4 @@
-package main
+package backend
 
 import (
 	"errors"
@@ -16,11 +16,11 @@ type BackendRegistry struct {
 	fallback string
 }
 
-func newBackendRegistry(fallback string) *BackendRegistry {
+func NewBackendRegistry(fallback string) *BackendRegistry {
 	return &BackendRegistry{backends: map[string]PaneBackend{}, fallback: fallback}
 }
 
-func (r *BackendRegistry) register(prefix string, b PaneBackend) {
+func (r *BackendRegistry) Register(prefix string, b PaneBackend) {
 	if _, exists := r.backends[prefix]; !exists {
 		r.order = append(r.order, prefix)
 	}

@@ -1,64 +1,18 @@
-package main
+package tmuxctl
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
 	"log"
 	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/BambooTuna/tmuxui/internal/backend"
 )
 
-// ErrUnsupported はバックエンドがサポートしない操作を呼び出したときに返す。
-// 例えば読み取り専用のバックエンドがSendKeysやNewSessionを拒否する場合など。
-var ErrUnsupported = errors.New("backend: operation not supported")
-
-// PaneBackend はセッション/ウィンドウ/ペインの一覧・入出力・CRUDを抽象化する。
-// target/nameは各バックエンドのネイティブ形式(プレフィックスなし)を渡すこと。
-// プレフィックス解決はBackendRegistryの責務。
-type PaneBackend interface {
-	// ListSessions は管理下の全セッションをネイティブなtarget形式で返す。
-	ListSessions() ([]Session, error)
-	// SyncSessions はListSessions()で取得した最新の一覧を使い、内部状態(ControlSession等)を
-	// 同期する。同期処理が不要なバックエンドはno-opでよい。
-	SyncSessions(sessions []Session)
-
-	Snapshot(target string) (data []byte, cols int, rows int, err error)
-	Subscribe(target string) (<-chan []byte, func(), error) // stream, cancel
-	// CapturePane はポーリング表示・permission検知向けの平文+ANSI付きキャプチャを返す。
-	CapturePane(target string) (*PaneContent, error)
-	// CapturePanePlain はpermission検知用の可視画面のみの軽量キャプチャを返す。
-	CapturePanePlain(target string) (string, error)
-
-	SendKeys(target, keys string) error
-	Resize(target string, cols, rows int) error
-
-	NewSession(name, dir string) error
-	KillSession(name string) error
-	RenameSession(oldName, newName string) error
-
-	NewWindow(sessionName, windowName string) error
-	KillWindow(target string) error
-	RenameWindow(target, newName string) error
-
-	KillPane(target string) error
-	SplitPane(target string, horizontal bool) error
-
-	// OnTopologyChange はセッション/ウィンドウ/ペイン構成が変化した際に呼ばれるコールバックを登録する。
-	OnTopologyChange(fn func())
-
-	// ValidTarget はsがこのバックエンドにとって構文的に正しいtarget/name(ネイティブ形式)かを返す。
-	ValidTarget(s string) bool
-
-	// SupportsTextPermissionDetection はHub側のdetectPermission(画面テキストのヒューリスティック解析)を
-	// このバックエンドのペインに対して実行すべきかを返す。herdrのようにagent_statusという構造化された
-	// 状態を持つバックエンドではfalseを返し、二重の権限待ち通知を防ぐ。
-	SupportsTextPermissionDetection() bool
-}
-
-// TmuxControlBackend はtmux control mode(ControlSession)を用いたPaneBackend実装。
+// TmuxControlBackend はtmux control mode(ControlSession)を用いたbackend.PaneBackend実装。
 // セッション名ごとに1つのControlSessionを保持し、pane_id⇔targetの対応表を
 // listSessions()の結果からSyncSessionsで更新する。
 type TmuxControlBackend struct {
@@ -66,29 +20,29 @@ type TmuxControlBackend struct {
 	sessions          map[string]*ControlSession // session name -> ControlSession (起動中はnilで予約)
 	paneToTarget      map[string]string
 	targetToPane      map[string]string
-	subs              map[string]map[chan []byte]*sync.Once // target -> subscribers(Onceは二重close防止用)
-	clientfulSessions map[string]struct{}                   // 実クライアント(スマホ以外)がアタッチ中のセッション名
+	subs              map[string]*backend.Broadcaster // target -> subscribers
+	clientfulSessions map[string]struct{}             // 実クライアント(スマホ以外)がアタッチ中のセッション名
 
 	onTopologyChange func()
 }
 
-var _ PaneBackend = (*TmuxControlBackend)(nil)
+var _ backend.PaneBackend = (*TmuxControlBackend)(nil)
 
-func newTmuxControlBackend() *TmuxControlBackend {
+func New() *TmuxControlBackend {
 	return &TmuxControlBackend{
 		sessions:          map[string]*ControlSession{},
 		paneToTarget:      map[string]string{},
 		targetToPane:      map[string]string{},
-		subs:              map[string]map[chan []byte]*sync.Once{},
+		subs:              map[string]*backend.Broadcaster{},
 		clientfulSessions: map[string]struct{}{},
 	}
 }
 
-func (b *TmuxControlBackend) ListSessions() ([]Session, error) {
+func (b *TmuxControlBackend) ListSessions() ([]backend.Session, error) {
 	return listSessions()
 }
 
-func (b *TmuxControlBackend) CapturePane(target string) (*PaneContent, error) {
+func (b *TmuxControlBackend) CapturePane(target string) (*backend.PaneContent, error) {
 	return capturePane(target)
 }
 
@@ -165,7 +119,7 @@ func (b *TmuxControlBackend) Snapshot(target string) ([]byte, int, int, error) {
 
 	args := []string{"capture-pane", "-t", target, "-p", "-e", "-J"}
 	if !altOn {
-		args = append(args, "-S", "-"+strconv.Itoa(snapshotHistoryLines))
+		args = append(args, "-S", "-"+strconv.Itoa(backend.SnapshotHistoryLines))
 	}
 	body, err := exec.Command("tmux", args...).Output()
 	if err != nil {
@@ -192,19 +146,21 @@ func (b *TmuxControlBackend) Subscribe(target string) (<-chan []byte, func(), er
 	once := &sync.Once{}
 
 	b.mu.Lock()
-	if b.subs[target] == nil {
-		b.subs[target] = map[chan []byte]*sync.Once{}
+	bc, ok := b.subs[target]
+	if !ok {
+		bc = backend.NewBroadcaster()
+		b.subs[target] = bc
 	}
-	b.subs[target][ch] = once
+	bc.Add(ch, once)
 	b.mu.Unlock()
 
 	// handleOutput側(chan満杯時)とcancel側の両方からcloseされうるため、
 	// 実際のcloseはonceで一本化して二重closeによるpanicを防ぐ。
 	cancel := func() {
 		b.mu.Lock()
-		if set, ok := b.subs[target]; ok {
-			delete(set, ch)
-			if len(set) == 0 {
+		if cur, ok := b.subs[target]; ok && cur == bc {
+			cur.Remove(ch)
+			if cur.Len() == 0 {
 				delete(b.subs, target)
 			}
 		}
@@ -242,7 +198,7 @@ func sessionNameFromTarget(target string) string {
 
 // SyncSessions は一覧にあるがControlSession未起動のセッションを起動し、消えたセッションを閉じる。
 // pane_id⇔targetの対応表もここで丸ごと更新する。
-func (b *TmuxControlBackend) SyncSessions(sessions []Session) {
+func (b *TmuxControlBackend) SyncSessions(sessions []backend.Session) {
 	paneToTarget := map[string]string{}
 	targetToPane := map[string]string{}
 	seen := map[string]struct{}{}
@@ -333,28 +289,26 @@ func (b *TmuxControlBackend) notifyTopologyChange() {
 
 func (b *TmuxControlBackend) handleOutput(paneID string, data []byte) {
 	b.mu.Lock()
-	defer b.mu.Unlock()
 	target, ok := b.paneToTarget[paneID]
-	if !ok {
+	var bc *backend.Broadcaster
+	if ok {
+		bc = b.subs[target]
+	}
+	b.mu.Unlock()
+	if !ok || bc == nil {
 		return
 	}
-	set := b.subs[target]
-	var overflowed []chan []byte
-	for ch, once := range set {
-		select {
-		case ch <- data:
-		default:
-			// 満杯のsubscriberは溜めずにcloseしてcancel扱いにする。
-			// Hub側はchanのcloseを検知してsnapshot再送+再subscribeする。
-			overflowed = append(overflowed, ch)
-			once.Do(func() { close(ch) })
+
+	bc.Publish(data)
+
+	// overflowで購読者が0になった場合は、Broadcaster自体を外側のmapからも取り除く
+	// (Publish/Removeはこのbc内部のロックのみで完結するため、外側map操作はここで別途行う)。
+	if bc.Len() == 0 {
+		b.mu.Lock()
+		if cur, ok := b.subs[target]; ok && cur == bc {
+			delete(b.subs, target)
 		}
-	}
-	for _, ch := range overflowed {
-		delete(set, ch)
-	}
-	if len(set) == 0 {
-		delete(b.subs, target)
+		b.mu.Unlock()
 	}
 }
 

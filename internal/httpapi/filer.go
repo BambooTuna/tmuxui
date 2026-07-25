@@ -1,4 +1,4 @@
-package main
+package httpapi
 
 import (
 	"context"
@@ -427,7 +427,7 @@ func handleFilerRaw(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ext := strings.ToLower(filepath.Ext(filePath))
-	mime, allowed := filerRawAllowed[ext]
+	mimeType, allowed := filerRawAllowed[ext]
 	if !allowed {
 		http.Error(w, "unsupported file type", http.StatusForbidden)
 		return
@@ -440,7 +440,7 @@ func handleFilerRaw(w http.ResponseWriter, r *http.Request) {
 	}
 	defer f.Close()
 
-	w.Header().Set("Content-Type", mime)
+	w.Header().Set("Content-Type", mimeType)
 	w.Header().Set("Content-Disposition", "inline")
 	// html はプレビュー用途なので inline script/style/画像を許可する。
 	// 他形式 (画像・PDF等) は従来通り厳しい CSP を維持。

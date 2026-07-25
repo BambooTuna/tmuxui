@@ -1,4 +1,5 @@
-package main
+// Package prefs implements persisted, mergeable user preferences (~/.config/tmuxui/preferences.json).
+package prefs
 
 import (
 	"encoding/json"
@@ -16,7 +17,7 @@ type Preferences struct {
 	filePath string
 }
 
-func newPreferences() *Preferences {
+func New() *Preferences {
 	home, _ := os.UserHomeDir()
 	p := &Preferences{
 		data:     map[string]any{},
@@ -93,11 +94,13 @@ func (p *Preferences) updatePinned(transform func([]string) []string) {
 	}
 }
 
-func removePinnedSession(name string) {
-	if globalPreferences == nil {
+// RemovePinnedSession はpinnedSessionsからnameを取り除く。pがnilの場合は何もしない
+// (Preferencesが未構築の状態で呼ばれても安全にno-opにするための防御)。
+func (p *Preferences) RemovePinnedSession(name string) {
+	if p == nil {
 		return
 	}
-	globalPreferences.updatePinned(func(cur []string) []string {
+	p.updatePinned(func(cur []string) []string {
 		out := cur[:0]
 		changed := false
 		for _, n := range cur {
@@ -114,11 +117,12 @@ func removePinnedSession(name string) {
 	})
 }
 
-func renamePinnedSession(oldName, newName string) {
-	if globalPreferences == nil {
+// RenamePinnedSession はpinnedSessions中のoldNameをnewNameに置き換える。
+func (p *Preferences) RenamePinnedSession(oldName, newName string) {
+	if p == nil {
 		return
 	}
-	globalPreferences.updatePinned(func(cur []string) []string {
+	p.updatePinned(func(cur []string) []string {
 		changed := false
 		for i, n := range cur {
 			if n == oldName {

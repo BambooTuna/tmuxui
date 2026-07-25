@@ -1,6 +1,7 @@
-package main
+package tmuxctl
 
 import (
+	"fmt"
 	"os/exec"
 	"strings"
 	"syscall"
@@ -8,16 +9,46 @@ import (
 	"time"
 )
 
-// startSimulatedRealClient はscript(1)でptyを介してtmux attachし、control-mode以外の
-// 実クライアントを模擬する。stdinがすぐEOFになるとscriptが即終了しclientがdetachして
-// しまうため、決してEOFにならないstdin(sleepのprocess substitution)を与える。
-// 呼び出し側はdeferでcleanup()を呼ぶこと。
+// scriptIsUtilLinux runs `script --version` and reports whether it's the util-linux
+// implementation (Linux, e.g. WSL/most distros) as opposed to the BSD/macOS one. util-linux's
+// `script` takes a single `-c <command>` argument instead of a trailing argv, so the two need
+// different invocations (see startSimulatedRealClient). If the flavor can't be determined, the
+// second return value is false and the caller should skip the test rather than guess.
+func scriptIsUtilLinux(t *testing.T, scriptPath string) (isUtilLinux, determined bool) {
+	t.Helper()
+	out, err := exec.Command(scriptPath, "--version").CombinedOutput()
+	if err != nil {
+		return false, false
+	}
+	return strings.Contains(string(out), "util-linux"), true
+}
+
+// startSimulatedRealClient uses script(1) over a pty to attach to session, simulating a
+// non-control-mode real client. stdin must never hit EOF (or script would exit and the
+// client would detach immediately), so it's fed from a process substitution that never closes.
+// The caller must defer cleanup().
 func startSimulatedRealClient(t *testing.T, session string) (cleanup func()) {
 	t.Helper()
-	if _, err := exec.LookPath("script"); err != nil {
+	scriptPath, err := exec.LookPath("script")
+	if err != nil {
 		t.Skip("script(1) not installed")
 	}
-	cmd := exec.Command("bash", "-c", "script -q /dev/null tmux attach -t "+session+" < <(sleep 999999)")
+
+	isUtilLinux, determined := scriptIsUtilLinux(t, scriptPath)
+	if !determined {
+		t.Skip("could not determine script(1) flavor (script --version failed)")
+	}
+
+	var shellCmd string
+	if isUtilLinux {
+		// util-linux script(1): -c takes a single command string, not a trailing argv.
+		shellCmd = fmt.Sprintf("script -qec %q /dev/null < <(sleep 999999)", "tmux attach -t "+session)
+	} else {
+		// BSD/macOS script(1): command and its args follow positionally.
+		shellCmd = "script -q /dev/null tmux attach -t " + session + " < <(sleep 999999)"
+	}
+
+	cmd := exec.Command("bash", "-c", shellCmd)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("failed to start simulated real client: %v", err)
@@ -52,14 +83,14 @@ func TestTmuxControlBackendSubscribeAndSnapshot(t *testing.T) {
 	}
 	defer exec.Command("tmux", "kill-session", "-t", session).Run()
 
-	backend := newTmuxControlBackend()
-	defer backend.Close()
+	be := New()
+	defer be.Close()
 
 	sessions, err := listSessions()
 	if err != nil {
 		t.Fatalf("listSessions: %v", err)
 	}
-	backend.SyncSessions(sessions)
+	be.SyncSessions(sessions)
 
 	var target string
 	for _, s := range sessions {
@@ -79,13 +110,13 @@ func TestTmuxControlBackendSubscribeAndSnapshot(t *testing.T) {
 	// SyncSessionsで起動したControlSessionがattachし終わるまでの猶予
 	time.Sleep(300 * time.Millisecond)
 
-	stream, cancel, err := backend.Subscribe(target)
+	stream, cancel, err := be.Subscribe(target)
 	if err != nil {
 		t.Fatalf("Subscribe: %v", err)
 	}
 	defer cancel()
 
-	if _, cols, rows, err := backend.Snapshot(target); err != nil {
+	if _, cols, rows, err := be.Snapshot(target); err != nil {
 		t.Fatalf("Snapshot: %v", err)
 	} else if cols <= 0 || rows <= 0 {
 		t.Fatalf("Snapshot returned invalid size: cols=%d rows=%d", cols, rows)
@@ -120,9 +151,9 @@ loop:
 }
 
 func TestTmuxControlBackendSupportsTextPermissionDetectionIsTrue(t *testing.T) {
-	backend := newTmuxControlBackend()
-	defer backend.Close()
-	if !backend.SupportsTextPermissionDetection() {
+	be := New()
+	defer be.Close()
+	if !be.SupportsTextPermissionDetection() {
 		t.Error("TmuxControlBackend.SupportsTextPermissionDetection() = false, want true")
 	}
 }
@@ -168,14 +199,14 @@ func TestTmuxControlBackendResizeSkippedWithRealClient(t *testing.T) {
 	defer cleanup()
 	waitForRealClient(t, session)
 
-	backend := newTmuxControlBackend()
-	defer backend.Close()
+	be := New()
+	defer be.Close()
 
 	sessions, err := listSessions()
 	if err != nil {
 		t.Fatalf("listSessions: %v", err)
 	}
-	backend.SyncSessions(sessions)
+	be.SyncSessions(sessions)
 
 	var target string
 	for _, s := range sessions {
@@ -192,7 +223,7 @@ func TestTmuxControlBackendResizeSkippedWithRealClient(t *testing.T) {
 		t.Fatalf("could not find target for session %q", session)
 	}
 
-	if err := backend.Resize(target, 40, 20); err != nil {
+	if err := be.Resize(target, 40, 20); err != nil {
 		t.Fatalf("Resize returned error, want nil (no-op when real client present): %v", err)
 	}
 

@@ -2,8 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/rand"
-	"encoding/hex"
 	"flag"
 	"fmt"
 	"log"
@@ -12,8 +10,19 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/BambooTuna/tmuxui/internal/backend"
+	"github.com/BambooTuna/tmuxui/internal/backend/herdr"
+	"github.com/BambooTuna/tmuxui/internal/backend/tmuxctl"
+	"github.com/BambooTuna/tmuxui/internal/config"
+	"github.com/BambooTuna/tmuxui/internal/httpapi"
+	"github.com/BambooTuna/tmuxui/internal/hub"
+	"github.com/BambooTuna/tmuxui/internal/prefs"
+	"github.com/BambooTuna/tmuxui/internal/selfupdate"
 )
 
+// version はgoreleaserが`-X main.version={{.Version}}`でビルド時に注入する。
+// goreleaser/`go install`の制約上、rootのpackage mainに残す必要がある。
 var version = "dev"
 
 func main() {
@@ -30,64 +39,65 @@ func main() {
 			fmt.Printf("tmuxui %s\n", version)
 			return
 		case "update":
-			if err := runUpdate(); err != nil {
+			if err := selfupdate.RunUpdateCLI(version); err != nil {
 				log.Fatal(err)
 			}
 			return
 		}
 	}
 
-	if *token == "" {
-		*token = os.Getenv("TMUXUI_TOKEN")
-	}
-	if *token == "" {
-		b := make([]byte, 16)
-		if _, err := rand.Read(b); err != nil {
-			log.Fatal(err)
-		}
-		*token = hex.EncodeToString(b)
+	cfg, err := config.New(*host, *port, *token, *dev, *herdrFlag)
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	globalPreferences = newPreferences()
-	hub := newHub()
-	backend := newTmuxControlBackend()
-	registry := newBackendRegistry("tmux")
-	registry.register("tmux", backend)
-	backend.OnTopologyChange(hub.broadcastPaneList)
+	preferences := prefs.New()
+	h := hub.New()
 
-	switch *herdrFlag {
+	tmuxBackend := tmuxctl.New()
+	registry := backend.NewBackendRegistry("tmux")
+	registry.Register("tmux", tmuxBackend)
+	tmuxBackend.OnTopologyChange(h.BroadcastPaneList)
+
+	switch cfg.HerdrMode {
 	case "off":
 		// herdr連携を無効化
 	case "auto":
-		if path := defaultHerdrSocketPath(); herdrSocketReachable(path) {
-			herdrBackend := newHerdrBackend(path)
-			herdrBackend.OnTopologyChange(hub.broadcastPaneList)
-			registry.register("herdr", herdrBackend)
+		if path := herdr.DefaultSocketPath(); herdr.SocketReachable(path) {
+			herdrBackend := herdr.New(path)
+			herdrBackend.OnTopologyChange(h.BroadcastPaneList)
+			registry.Register("herdr", herdrBackend)
 			log.Printf("herdr: connected via %s", path)
 		}
 	default:
-		herdrBackend := newHerdrBackend(*herdrFlag)
-		herdrBackend.OnTopologyChange(hub.broadcastPaneList)
-		registry.register("herdr", herdrBackend)
-		if !herdrSocketReachable(*herdrFlag) {
-			log.Printf("herdr: socket %s not reachable yet, will retry on demand", *herdrFlag)
+		herdrBackend := herdr.New(cfg.HerdrMode)
+		herdrBackend.OnTopologyChange(h.BroadcastPaneList)
+		registry.Register("herdr", herdrBackend)
+		if !herdr.SocketReachable(cfg.HerdrMode) {
+			log.Printf("herdr: socket %s not reachable yet, will retry on demand", cfg.HerdrMode)
 		}
 	}
 
-	hub.registry = registry
-	globalRegistry = registry
-	go hub.run()
+	h.SetRegistry(registry)
+	go h.Run()
 
-	globalUpdateManager = newUpdateManager(globalPreferences, hub)
+	updateManager := selfupdate.NewManager(version, preferences, h)
+	h.SetUpdates(updateManager)
 	updateCtx, updateCancel := context.WithCancel(context.Background())
 	defer updateCancel()
-	go globalUpdateManager.Run(updateCtx)
-
-	addr := fmt.Sprintf("%s:%d", *host, *port)
+	go updateManager.Run(updateCtx)
 
 	srv := &http.Server{
-		Addr:    addr,
-		Handler: newServer(*token, hub, *dev),
+		Addr: cfg.Addr(),
+		Handler: httpapi.New(httpapi.Config{
+			Token:       cfg.Token,
+			Dev:         cfg.Dev,
+			WebFS:       webFS,
+			Hub:         h,
+			Registry:    registry,
+			Preferences: preferences,
+			Updates:     updateManager,
+		}),
 	}
 
 	quit := make(chan os.Signal, 1)
@@ -102,8 +112,8 @@ func main() {
 	}()
 
 	fmt.Printf("tmuxui %s\n", version)
-	fmt.Printf("Listening on http://%s\n", addr)
-	fmt.Printf("Access URL: http://%s?token=%s\n", addr, *token)
+	fmt.Printf("Listening on http://%s\n", cfg.Addr())
+	fmt.Printf("Access URL: http://%s?token=%s\n", cfg.Addr(), cfg.Token)
 
 	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 		log.Fatal(err)

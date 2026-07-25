@@ -1,4 +1,7 @@
-package main
+// Package httpapi wires the HTTP mux (REST API, static assets, auth middleware) and
+// implements the REST handlers on top of the backend registry, hub, preferences, and
+// update manager passed in via Config.
+package httpapi
 
 import (
 	"embed"
@@ -7,38 +10,69 @@ import (
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/BambooTuna/tmuxui/internal/backend"
+	"github.com/BambooTuna/tmuxui/internal/hub"
+	"github.com/BambooTuna/tmuxui/internal/prefs"
+	"github.com/BambooTuna/tmuxui/internal/selfupdate"
 )
 
-//go:embed web/*
-var webFS embed.FS
+// Config は httpapi.New に渡す依存一式。WebFS の //go:embed 宣言は埋め込み元ソースファイルの
+// 相対パスに縛られるため、リポジトリルートの embed.go 側で宣言したものをここへ注入する。
+type Config struct {
+	Token       string
+	Dev         bool
+	WebFS       embed.FS
+	Hub         *hub.Hub
+	Registry    *backend.BackendRegistry
+	Preferences *prefs.Preferences
+	Updates     *selfupdate.UpdateManager
+}
 
-func newServer(token string, hub *Hub, dev bool) http.Handler {
+// Server はHTTPハンドラの実体。かつてのパッケージ変数(preferences/registry/update manager)を
+// すべてこの構造体のフィールドとしてコンストラクタ注入する。
+type Server struct {
+	hub         *hub.Hub
+	registry    *backend.BackendRegistry
+	preferences *prefs.Preferences
+	updates     *selfupdate.UpdateManager
+}
+
+// New はConfigからhttp.Handler(認証ミドルウェア込みのmux)を組み立てる。
+func New(cfg Config) http.Handler {
+	s := &Server{
+		hub:         cfg.Hub,
+		registry:    cfg.Registry,
+		preferences: cfg.Preferences,
+		updates:     cfg.Updates,
+	}
+
 	mux := http.NewServeMux()
 
 	var webRoot fs.FS
-	if dev {
+	if cfg.Dev {
 		webRoot = os.DirFS("web")
 	} else {
-		webRoot, _ = fs.Sub(webFS, "web")
+		webRoot, _ = fs.Sub(cfg.WebFS, "web")
 	}
 
-	mux.HandleFunc("GET /api/sessions", handleSessions)
-	mux.HandleFunc("POST /api/sessions", withPaneNotify(hub, handleCreateSession))
-	mux.HandleFunc("DELETE /api/sessions/{name}", withPaneNotify(hub, handleKillSession))
-	mux.HandleFunc("POST /api/sessions/{name}/rename", withPaneNotify(hub, handleRenameSession))
-	mux.HandleFunc("POST /api/sessions/{name}/windows", withPaneNotify(hub, handleCreateWindow))
-	mux.HandleFunc("DELETE /api/sessions/{name}/windows/{index}", withPaneNotify(hub, handleKillWindow))
-	mux.HandleFunc("POST /api/sessions/{name}/windows/{index}/rename", withPaneNotify(hub, handleRenameWindow))
-	mux.HandleFunc("GET /api/panes/{target}/content", handlePaneContent)
-	mux.HandleFunc("POST /api/panes/{target}/keys", handlePaneKeys)
-	mux.HandleFunc("DELETE /api/panes/{target}", withPaneNotify(hub, handleKillPane))
-	mux.HandleFunc("POST /api/panes/{target}/split", withPaneNotify(hub, handleSplitPane))
-	mux.HandleFunc("GET /api/preferences", handleGetPreferences)
-	mux.HandleFunc("PUT /api/preferences", handlePutPreferences)
-	mux.HandleFunc("GET /api/update/status", handleUpdateStatus)
-	mux.HandleFunc("GET /api/update/releases", handleUpdateReleases)
-	mux.HandleFunc("POST /api/update/check", handleUpdateCheck)
-	mux.HandleFunc("POST /api/update/apply", handleUpdateApply)
+	mux.HandleFunc("GET /api/sessions", s.handleSessions)
+	mux.HandleFunc("POST /api/sessions", s.withPaneNotify(s.handleCreateSession))
+	mux.HandleFunc("DELETE /api/sessions/{name}", s.withPaneNotify(s.handleKillSession))
+	mux.HandleFunc("POST /api/sessions/{name}/rename", s.withPaneNotify(s.handleRenameSession))
+	mux.HandleFunc("POST /api/sessions/{name}/windows", s.withPaneNotify(s.handleCreateWindow))
+	mux.HandleFunc("DELETE /api/sessions/{name}/windows/{index}", s.withPaneNotify(s.handleKillWindow))
+	mux.HandleFunc("POST /api/sessions/{name}/windows/{index}/rename", s.withPaneNotify(s.handleRenameWindow))
+	mux.HandleFunc("GET /api/panes/{target}/content", s.handlePaneContent)
+	mux.HandleFunc("POST /api/panes/{target}/keys", s.handlePaneKeys)
+	mux.HandleFunc("DELETE /api/panes/{target}", s.withPaneNotify(s.handleKillPane))
+	mux.HandleFunc("POST /api/panes/{target}/split", s.withPaneNotify(s.handleSplitPane))
+	mux.HandleFunc("GET /api/preferences", s.handleGetPreferences)
+	mux.HandleFunc("PUT /api/preferences", s.handlePutPreferences)
+	mux.HandleFunc("GET /api/update/status", s.handleUpdateStatus)
+	mux.HandleFunc("GET /api/update/releases", s.handleUpdateReleases)
+	mux.HandleFunc("POST /api/update/check", s.handleUpdateCheck)
+	mux.HandleFunc("POST /api/update/apply", s.handleUpdateApply)
 	mux.HandleFunc("GET /api/claude/commands", handleClaudeCommands)
 	mux.HandleFunc("GET /api/snippets", handleSnippetList)
 	mux.HandleFunc("GET /api/snippets/{name}", handleSnippetContent)
@@ -51,9 +85,7 @@ func newServer(token string, hub *Hub, dev bool) http.Handler {
 	mux.HandleFunc("GET /api/filer/download", handleFilerDownload)
 	mux.HandleFunc("POST /api/filer/create", handleFilerCreate)
 	mux.HandleFunc("POST /api/filer/upload", handleFilerUpload)
-	mux.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		handleWS(hub, w, r)
-	})
+	mux.HandleFunc("/ws", s.hub.HandleWS)
 	// PWAの起動URLにtokenを埋め込むため動的生成(認証はauthMiddleware側で担保)
 	mux.HandleFunc("GET /manifest.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/manifest+json")
@@ -61,7 +93,7 @@ func newServer(token string, hub *Hub, dev bool) http.Handler {
 		json.NewEncoder(w).Encode(map[string]any{
 			"name":             "tmuxui",
 			"short_name":       "tmuxui",
-			"start_url":        "/?token=" + token,
+			"start_url":        "/?token=" + cfg.Token,
 			"display":          "standalone",
 			"background_color": "#1a1a2e",
 			"theme_color":      "#1a1a2e",
@@ -72,7 +104,7 @@ func newServer(token string, hub *Hub, dev bool) http.Handler {
 		})
 	})
 	fileServer := http.FileServer(http.FS(webRoot))
-	if dev {
+	if cfg.Dev {
 		mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 			fileServer.ServeHTTP(w, r)
@@ -87,13 +119,13 @@ func newServer(token string, hub *Hub, dev bool) http.Handler {
 		}))
 	}
 
-	return authMiddleware(token, mux)
+	return authMiddleware(cfg.Token, mux)
 }
 
-func withPaneNotify(hub *Hub, next http.HandlerFunc) http.HandlerFunc {
+func (s *Server) withPaneNotify(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		next(w, r)
-		go hub.broadcastPaneList()
+		go s.hub.BroadcastPaneList()
 	}
 }
 

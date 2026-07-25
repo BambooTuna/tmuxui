@@ -1,4 +1,4 @@
-package main
+package tmuxctl
 
 import (
 	"bufio"
@@ -6,8 +6,9 @@ import (
 	"log"
 	"os/exec"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/BambooTuna/tmuxui/internal/backend"
 )
 
 // ControlSession は tmux control mode (`tmux -C attach-session`) を1プロセス起動し、
@@ -18,7 +19,6 @@ type ControlSession struct {
 	cmd     *exec.Cmd
 	stdin   io.WriteCloser
 	stdout  io.Reader
-	writeMu sync.Mutex
 	done    chan struct{}
 
 	onOutput         func(paneID string, data []byte)
@@ -66,6 +66,7 @@ func (cs *ControlSession) Start() {
 
 func (cs *ControlSession) readLoop() {
 	defer close(cs.done)
+	defer backend.RecoverAndLog("tmuxctl.ControlSession.readLoop")
 	// 巨大な%output行(1行が数十KBになりうる)にbufio.Scannerの64KB上限では耐えられないため、
 	// ReadStringで無制限に読む。
 	reader := bufio.NewReader(cs.stdout)
@@ -166,14 +167,6 @@ func decodeControlModeData(s string) []byte {
 
 func isOctalDigit(c byte) bool {
 	return c >= '0' && c <= '7'
-}
-
-// SendCommand はcontrol modeクライアントのstdinへコマンドを1行書き込む(改行を付与)。
-func (cs *ControlSession) SendCommand(cmd string) error {
-	cs.writeMu.Lock()
-	defer cs.writeMu.Unlock()
-	_, err := io.WriteString(cs.stdin, cmd+"\n")
-	return err
 }
 
 // Close はstdinを閉じて正常終了を待ち、猶予時間内に終了しなければkillする。goroutineリークを防ぐため

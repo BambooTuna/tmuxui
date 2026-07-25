@@ -1,4 +1,6 @@
-package main
+// Package herdr implements backend.PaneBackend against herdr's local socket API
+// (newline-delimited JSON-RPC-ish protocol; see https://herdr.dev/docs/socket-api/).
+package herdr
 
 import (
 	"bufio"
@@ -13,6 +15,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/BambooTuna/tmuxui/internal/backend"
 )
 
 const (
@@ -22,10 +26,10 @@ const (
 	herdrTopologyPollInterval  = 2 * time.Second
 )
 
-// defaultHerdrSocketPath はherdrのソケットパス解決順(HERDR_SOCKET_PATH -> HERDR_SESSION -> デフォルト)
+// DefaultSocketPath はherdrのソケットパス解決順(HERDR_SOCKET_PATH -> HERDR_SESSION -> デフォルト)
 // に従い、herdrデーモンが待ち受けるUnixドメインソケットのパスを返す。
 // (実機のhttps://herdr.dev/docs/socket-api/および`herdr --help`で確認済み)
-func defaultHerdrSocketPath() string {
+func DefaultSocketPath() string {
 	if p := os.Getenv("HERDR_SOCKET_PATH"); p != "" {
 		return p
 	}
@@ -199,38 +203,40 @@ var herdrTargetPattern = regexp.MustCompile(`^[A-Za-z0-9]+:p[A-Za-z0-9]+$`)
 // 「画面クリア+全量再描画」のANSIチャンクをpane_outputとして流す。xterm.js側は通常の端末出力として
 // 解釈できるため、Hub/フロントエンドの変更は不要。
 type herdrPoller struct {
-	subs     map[chan []byte]*sync.Once
-	stop     chan struct{}
-	stopOnce sync.Once
-	lastText string
+	broadcaster *backend.Broadcaster
+	stop        chan struct{}
+	stopOnce    sync.Once
+	lastText    string
 }
 
-// HerdrBackend はherdrソケットAPI経由のPaneBackend実装。
+// HerdrBackend はherdrソケットAPI経由のbackend.PaneBackend実装。
 type HerdrBackend struct {
 	client *herdrClient
 
 	mu      sync.Mutex
 	pollers map[string]*herdrPoller
+	wg      sync.WaitGroup // runPoller/runTopologyPollerの終了待ち合わせ用(Close参照)
 
 	onTopologyChange func()
 	closed           chan struct{}
 	closeOnce        sync.Once
 }
 
-var _ PaneBackend = (*HerdrBackend)(nil)
+var _ backend.PaneBackend = (*HerdrBackend)(nil)
 
-func newHerdrBackend(socketPath string) *HerdrBackend {
+func New(socketPath string) *HerdrBackend {
 	b := &HerdrBackend{
 		client:  newHerdrClient(socketPath),
 		pollers: map[string]*herdrPoller{},
 		closed:  make(chan struct{}),
 	}
+	b.wg.Add(1)
 	go b.runTopologyPoller()
 	return b
 }
 
-// herdrSocketReachable はsocketPathにping疎通できるかを返す。main.goの-herdr=auto判定用。
-func herdrSocketReachable(socketPath string) bool {
+// SocketReachable はsocketPathにping疎通できるかを返す。main.goの-herdr=auto判定用。
+func SocketReachable(socketPath string) bool {
 	if socketPath == "" {
 		return false
 	}
@@ -250,12 +256,12 @@ func (b *HerdrBackend) SupportsTextPermissionDetection() bool {
 
 // SyncSessions: HerdrBackendはControlSessionのような常駐プロセス/接続を持たず、window/paneの
 // target解決も都度ソケット呼び出しで行う(resolveTabID参照)ため、同期すべき内部状態が無い。
-func (b *HerdrBackend) SyncSessions(sessions []Session) {}
+func (b *HerdrBackend) SyncSessions(sessions []backend.Session) {}
 
 // ListSessions はworkspace.list/tab.list/pane.listをマージしてSession/Window/Paneへ変換する。
 // pane一つひとつのcols/rowsはpane.layoutで取得するが、herdrのlayoutはtabにつき1回呼べば
 // そのtab内の全paneのrectがまとめて返るため、tabごとに1回(paneごとではなく)呼び出す。
-func (b *HerdrBackend) ListSessions() ([]Session, error) {
+func (b *HerdrBackend) ListSessions() ([]backend.Session, error) {
 	var wsRes struct {
 		Workspaces []herdrWorkspace `json:"workspaces"`
 	}
@@ -284,14 +290,14 @@ func (b *HerdrBackend) ListSessions() ([]Session, error) {
 		panesByTab[p.TabID] = append(panesByTab[p.TabID], p)
 	}
 
-	sessions := make([]Session, 0, len(wsRes.Workspaces))
+	sessions := make([]backend.Session, 0, len(wsRes.Workspaces))
 	for _, w := range wsRes.Workspaces {
 		tabs := tabsByWorkspace[w.WorkspaceID]
-		windows := make([]Window, 0, len(tabs))
+		windows := make([]backend.Window, 0, len(tabs))
 		for _, t := range tabs {
 			panes := panesByTab[t.TabID]
 			rects := b.tabLayoutRects(panes)
-			wpanes := make([]Pane, 0, len(panes))
+			wpanes := make([]backend.Pane, 0, len(panes))
 			for _, p := range panes {
 				size := ""
 				if r, ok := rects[p.PaneID]; ok {
@@ -301,7 +307,7 @@ func (b *HerdrBackend) ListSessions() ([]Session, error) {
 				if path == "" {
 					path = p.Cwd
 				}
-				wpanes = append(wpanes, Pane{
+				wpanes = append(wpanes, backend.Pane{
 					Target: p.PaneID,
 					ID:     p.TerminalID,
 					// Cmd引き続きp.Agentのまま(既存フロントのpaneLabel()フォールバックとの後方互換用)。
@@ -313,7 +319,7 @@ func (b *HerdrBackend) ListSessions() ([]Session, error) {
 					AgentStatus: p.AgentStatus,
 				})
 			}
-			windows = append(windows, Window{
+			windows = append(windows, backend.Window{
 				Index:       t.Number,
 				ID:          t.TabID,
 				Name:        t.Label,
@@ -322,7 +328,7 @@ func (b *HerdrBackend) ListSessions() ([]Session, error) {
 				Panes:       wpanes,
 			})
 		}
-		sessions = append(sessions, Session{
+		sessions = append(sessions, backend.Session{
 			Name:          w.WorkspaceID,
 			Attached:      w.Focused,
 			DisplayName:   w.Label,
@@ -386,7 +392,7 @@ func (b *HerdrBackend) paneSize(target string) (cols, rows int) {
 }
 
 // Snapshot はスクロールバック込みの画面内容をANSI付きで1回分取得する。tmux版のcapture-pane
-// -S -snapshotHistoryLines同様、source:"recent"+lines:snapshotHistoryLinesでxterm.js側の
+// -S -SnapshotHistoryLines同様、source:"recent"+lines:backend.SnapshotHistoryLinesでxterm.js側の
 // scrollbackバッファ(term.jsのscrollback:20000)を初期表示から遡れるようにする。tmux版と異なり
 // カーソル位置はherdr側から取得できない(pane.read/pane.layoutともにカーソル座標を返さない)ため、
 // カーソル位置決め打ちは行わない。xterm.js側は書き込んだ内容の末尾にカーソルを置くため、
@@ -394,7 +400,7 @@ func (b *HerdrBackend) paneSize(target string) (cols, rows int) {
 func (b *HerdrBackend) Snapshot(target string) ([]byte, int, int, error) {
 	var res herdrReadResult
 	if err := b.client.call("pane.read", map[string]interface{}{
-		"pane_id": target, "source": "recent", "lines": snapshotHistoryLines, "format": "ansi", "strip_ansi": false,
+		"pane_id": target, "source": "recent", "lines": backend.SnapshotHistoryLines, "format": "ansi", "strip_ansi": false,
 	}, &res); err != nil {
 		return nil, 0, 0, err
 	}
@@ -412,18 +418,19 @@ func (b *HerdrBackend) Subscribe(target string) (<-chan []byte, func(), error) {
 	b.mu.Lock()
 	p, ok := b.pollers[target]
 	if !ok {
-		p = &herdrPoller{subs: map[chan []byte]*sync.Once{}, stop: make(chan struct{})}
+		p = &herdrPoller{broadcaster: backend.NewBroadcaster(), stop: make(chan struct{})}
 		b.pollers[target] = p
+		b.wg.Add(1)
 		go b.runPoller(target, p)
 	}
-	p.subs[ch] = once
+	p.broadcaster.Add(ch, once)
 	b.mu.Unlock()
 
 	cancel := func() {
 		b.mu.Lock()
 		if cur, ok := b.pollers[target]; ok && cur == p {
-			delete(p.subs, ch)
-			if len(p.subs) == 0 {
+			p.broadcaster.Remove(ch)
+			if p.broadcaster.Len() == 0 {
 				delete(b.pollers, target)
 				p.stopOnce.Do(func() { close(p.stop) })
 			}
@@ -473,6 +480,8 @@ func lastNLines(s string, n int) string {
 // 残り続け、かつ(lastNLinesでviewport_rows以内に切り詰めているため)重複して積み上がることもない。
 // 購読者はTmuxControlBackend.handleOutputと同様、溜めずにcloseしてcancel扱いにする。
 func (b *HerdrBackend) runPoller(target string, p *herdrPoller) {
+	defer b.wg.Done()
+	defer backend.RecoverAndLog("herdr.runPoller")
 	ticker := time.NewTicker(herdrSubscribePollInterval)
 	defer ticker.Stop()
 	for {
@@ -505,46 +514,25 @@ func (b *HerdrBackend) runPoller(target string, p *herdrPoller) {
 			continue
 		}
 		p.lastText = text
-		chs := make([]chan []byte, 0, len(p.subs))
-		onces := make([]*sync.Once, 0, len(p.subs))
-		for ch, o := range p.subs {
-			chs = append(chs, ch)
-			onces = append(onces, o)
-		}
 		b.mu.Unlock()
 
 		chunk := []byte("\x1b[H\x1b[2J" + text)
-		var overflowed []chan []byte
-		for i, ch := range chs {
-			select {
-			case ch <- chunk:
-			default:
-				onces[i].Do(func() { close(ch) })
-				overflowed = append(overflowed, ch)
-			}
-		}
-		if len(overflowed) > 0 {
-			b.mu.Lock()
-			for _, ch := range overflowed {
-				delete(p.subs, ch)
-			}
-			b.mu.Unlock()
-		}
+		p.broadcaster.Publish(chunk)
 	}
 }
 
 // CapturePane はclassic描画・REST経由取得向けのキャプチャを、Snapshotと同様
-// source:"recent"+lines:snapshotHistoryLinesでスクロールバック込みに取得する。
+// source:"recent"+lines:backend.SnapshotHistoryLinesでスクロールバック込みに取得する。
 // classicモード(ansi.js)側で色/装飾を描画できるようANSI付きで返す(permission検知など
 // 平文が必要な用途はCapturePanePlainを使う)。
-func (b *HerdrBackend) CapturePane(target string) (*PaneContent, error) {
+func (b *HerdrBackend) CapturePane(target string) (*backend.PaneContent, error) {
 	var res herdrReadResult
 	if err := b.client.call("pane.read", map[string]interface{}{
-		"pane_id": target, "source": "recent", "lines": snapshotHistoryLines, "format": "ansi", "strip_ansi": false,
+		"pane_id": target, "source": "recent", "lines": backend.SnapshotHistoryLines, "format": "ansi", "strip_ansi": false,
 	}, &res); err != nil {
 		return nil, err
 	}
-	return &PaneContent{
+	return &backend.PaneContent{
 		Target:  target,
 		Content: res.Read.Text,
 		Lines:   strings.Count(res.Read.Text, "\n"),
@@ -555,7 +543,7 @@ func (b *HerdrBackend) CapturePane(target string) (*PaneContent, error) {
 func (b *HerdrBackend) CapturePanePlain(target string) (string, error) {
 	var res herdrReadResult
 	if err := b.client.call("pane.read", map[string]interface{}{
-		"pane_id": target, "source": "recent", "lines": snapshotHistoryLines, "format": "text", "strip_ansi": true,
+		"pane_id": target, "source": "recent", "lines": backend.SnapshotHistoryLines, "format": "text", "strip_ansi": true,
 	}, &res); err != nil {
 		return "", err
 	}
@@ -667,7 +655,7 @@ func (b *HerdrBackend) NewWindow(sessionName, windowName string) error {
 	return b.client.call("tab.create", params, nil)
 }
 
-// resolveTabID はhandler.goが組み立てる"<workspace_id>:<windowIndex>"形式のtarget
+// resolveTabID はhandler側が組み立てる"<workspace_id>:<windowIndex>"形式のtarget
 // (KillWindow/RenameWindowの引数、tmuxの"session:windowIndex"に相当)から実際のtab_id
 // ("<workspace_id>:t<n>"形式)を引く。tab_idの末尾番号がWindow.Index(tab.number)と常に
 // 対応する保証がない(numberは表示用の連番、tab_idは永続的なID)ため、都度tab.listで引き直す。
@@ -742,6 +730,8 @@ func (b *HerdrBackend) OnTopologyChange(fn func()) {
 // workspace.created/closedはevents.subscribeでpane_idなしにグローバル購読できることを確認済み
 // だが、tab/pane単位の変化までは拾えないため、ここでは一貫してポーリングに統一している。
 func (b *HerdrBackend) runTopologyPoller() {
+	defer b.wg.Done()
+	defer backend.RecoverAndLog("herdr.runTopologyPoller")
 	ticker := time.NewTicker(herdrTopologyPollInterval)
 	defer ticker.Stop()
 	last := ""
@@ -779,7 +769,8 @@ func (b *HerdrBackend) runTopologyPoller() {
 }
 
 // Close はバックグラウンドgoroutine(トポロジーポーラー・各ターゲットのSubscribeポーラー)を
-// 停止する。PaneBackendインターフェースの一部ではなく、テスト/シャットダウン専用。
+// 停止し、その終了を待ってから返る。PaneBackendインターフェースの一部ではなく、
+// テスト/シャットダウン専用。
 func (b *HerdrBackend) Close() {
 	b.closeOnce.Do(func() {
 		close(b.closed)
@@ -790,4 +781,5 @@ func (b *HerdrBackend) Close() {
 		}
 		b.mu.Unlock()
 	})
+	b.wg.Wait()
 }
