@@ -53,18 +53,6 @@ function applyRenderer(value) {
   location.reload();
 }
 
-// 詳細画面ヘッダーの試験的トグル。現在エンジンを見て反対側に切替える
-function updateHeaderRendererToggle() {
-  const btn = document.getElementById('btn-renderer-toggle');
-  if (!btn) return;
-  const current = localStorage.getItem('tmuxuiXterm') === '0' ? 'classic' : 'xterm';
-  btn.dataset.current = current;
-  btn.textContent = current === 'xterm' ? 'Aa' : '▦';
-  const nextLabel = current === 'xterm' ? 'テキスト描画に切替(選択・長押しコピー可)' : 'xterm描画に戻す';
-  btn.title = nextLabel;
-  btn.setAttribute('aria-label', nextLabel);
-}
-
 function showSettings() {
   state.settingsReturnView = document.getElementById('view-detail').classList.contains('active') ? 'detail' : 'sessions';
   document.getElementById('view-detail').classList.remove('active');
@@ -290,14 +278,6 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   for (const btn of document.querySelectorAll('.renderer-switch-btn')) {
     btn.addEventListener('click', () => applyRenderer(btn.dataset.rendererValue));
-  }
-  const headerToggle = document.getElementById('btn-renderer-toggle');
-  if (headerToggle) {
-    updateHeaderRendererToggle();
-    headerToggle.addEventListener('click', () => {
-      const current = localStorage.getItem('tmuxuiXterm') === '0' ? 'classic' : 'xterm';
-      applyRenderer(current === 'xterm' ? 'classic' : 'xterm');
-    });
   }
 
   document.getElementById('update-check-btn').addEventListener('click', checkUpdateNow);

@@ -11,7 +11,7 @@
   <meta name="theme-color" content="#1a1a2e">
   <link rel="icon" type="image/png" href="icon-192.png">
   <link rel="stylesheet" href="vendor/xterm/xterm.css">
-  <link rel="stylesheet" href="style.css?v=27">
+  <link rel="stylesheet" href="style.css?v=28">
 </head>
 <body>
 
@@ -40,7 +40,6 @@
         <button id="breadcrumb-window" class="breadcrumb-window"></button>
       </span>
       <button id="btn-filer" class="btn-icon btn-filer" aria-label="ファイラー">&#8862;</button>
-      <button id="btn-renderer-toggle" class="btn-icon btn-renderer-toggle" aria-label="描画エンジン切替">Aa</button>
       <button id="btn-menu" class="btn-icon" aria-label="メニュー">&#9776;</button>
     </header>
     <!-- ===== 権限バナー（通知のみ） ===== -->
@@ -68,27 +67,8 @@
     <div id="pane-content" class="pane-content"></div>
     <!-- ===== リモートスクロールボタン(#input-areaとは独立。#pane-content表示中のみCSSで表示) ===== -->
     <div id="remote-scroll-buttons" class="remote-scroll-buttons">
-      <button type="button" id="btn-pane-copy" class="remote-scroll-btn" aria-label="コピー">&#9114;</button>
       <button type="button" id="btn-remote-scroll-up" class="remote-scroll-btn" aria-label="上にスクロール(リモート)">&#9650;</button>
       <button type="button" id="btn-remote-scroll-down" class="remote-scroll-btn" aria-label="下にスクロール(リモート)">&#9660;</button>
-    </div>
-    <!-- ===== コピー用オーバーレイ(バッファをプレーンテキスト化し、OSネイティブに選択・長押しコピー可能にする) ===== -->
-    <div id="pane-copy-overlay" hidden class="pane-copy-overlay">
-      <div class="pane-copy-box">
-        <div class="pane-copy-header">
-          <span class="pane-copy-title">選択してコピー</span>
-          <button type="button" id="pane-copy-close" class="pane-copy-close" aria-label="閉じる">&times;</button>
-        </div>
-        <pre id="pane-copy-text" class="pane-copy-text"></pre>
-        <div class="pane-copy-actions">
-          <label class="pane-copy-toggle">
-            <input type="checkbox" id="pane-copy-include-scrollback">
-            <span>履歴を含める</span>
-          </label>
-          <button type="button" id="pane-copy-all-btn" class="modal-btn modal-btn-ok">すべてコピー</button>
-        </div>
-        <div id="pane-copy-toast" hidden class="pane-copy-toast">コピーしました</div>
-      </div>
     </div>
     <div id="filer-panel" hidden class="filer-panel">
       <div class="filer-toolbar">
@@ -347,8 +327,8 @@
 
   <script src="vendor/xterm/xterm.js"></script>
   <script src="vendor/xterm/addon-fit.js"></script>
-  <script src="term.js?v=21"></script>
-  <script src="settings.js?v=17"></script>
+  <script src="term.js?v=22"></script>
+  <script src="settings.js?v=18"></script>
   <script src="app.js?v=14"></script>
   <script src="ws.js?v=15"></script>
   <script src="ansi.js?v=14"></script>
