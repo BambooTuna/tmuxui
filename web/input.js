@@ -72,41 +72,6 @@ function populateCommandSheet() {
   }
 }
 
-// ===== スクロールキー転送 =====
-// alternate screenのTUI(Claude Code fullscreen等)は履歴がtmuxに残らず
-// divが1画面分しかない。その場合のみスワイプ/ホイールをPgUp/PgDnとして送る
-function initScrollForward() {
-  const el = $('pane-content');
-  const canScrollLocally = () => xtermEnabled()
-    ? termBufferType() === 'normal'
-    : el.scrollHeight > el.clientHeight + 4;
-  const sendPage = down => {
-    if (state.currentPane) sendKeys(state.currentPane, down ? 'NPage' : 'PPage');
-  };
-
-  let touchY = null;
-  el.addEventListener('touchstart', e => {
-    touchY = e.touches[0].clientY;
-  }, { passive: true });
-  el.addEventListener('touchmove', e => {
-    if (touchY === null || canScrollLocally()) return;
-    const dy = e.touches[0].clientY - touchY;
-    if (Math.abs(dy) < 48) return;
-    touchY = e.touches[0].clientY;
-    sendPage(dy < 0);
-  }, { passive: true });
-  el.addEventListener('touchend', () => { touchY = null; });
-
-  let wheelAcc = 0;
-  el.addEventListener('wheel', e => {
-    if (canScrollLocally()) return;
-    wheelAcc += e.deltaY;
-    if (Math.abs(wheelAcc) < 60) return;
-    sendPage(wheelAcc > 0);
-    wheelAcc = 0;
-  }, { passive: true });
-}
-
 // ===== Events =====
 function bindEvents() {
   // Back
@@ -353,8 +318,6 @@ function bindEvents() {
     }
   });
   history.pushState(null, '');
-
-  initScrollForward();
 }
 
 // ===== Snippet Popup Menu =====
