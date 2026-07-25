@@ -727,6 +727,18 @@ button, input, textarea {
   user-select: text;
 }
 
+/* 従来(classic)モード: xterm.js側と同じbg/fg/行送りに寄せる(ansi.jsのTERM_DEFAULTと同値)。
+   xterm時は#pane-content:has(.xterm)側でxterm自身が描画するため、こちらの色は影響しない。 */
+#pane-content:not(:has(.xterm)) {
+  background: #1a1a1a;
+  color: #e0e0e0;
+  line-height: 1.2;
+}
+[data-theme="pastel"] #pane-content:not(:has(.xterm)) {
+  background: #faf6f0;
+  color: #4a3f35;
+}
+
 /* xterm.js使用時: FitAddonは#pane-contentの高さ/幅から.xterm自身のpaddingだけを差し引いて
    cols/rowsを計算するため、paddingはコンテナではなく.xterm側に持たせる */
 #pane-content:has(.xterm) {

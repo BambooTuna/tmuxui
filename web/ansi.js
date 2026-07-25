@@ -64,17 +64,35 @@
   }
 
   // 現在のスタイル状態から style 文字列を生成
+  // xtermのdrawBoldTextInBrightColors(既定true)相当: 基本色0-7がboldなら明色8-15に差し替える
+  function resolveFg(state) {
+    if (!state.fg) return null;
+    if (!state.bold) return state.fg;
+    const idx = state.basicFgIndex;
+    if (typeof idx !== 'number' || idx < 0 || idx > 7) return state.fg;
+    return getBasicColors()[idx + 8];
+  }
+
   function buildStyle(state) {
     const parts = [];
-    if (state.fg) {
-      parts.push(`color:${state.fg}`);
+    let fg = resolveFg(state);
+    let bg = state.bg;
+    // reverse: 前景/背景を入れ替える(xtermと同じ)。未指定はデフォルト色を使う。
+    if (state.reverse) {
+      const defFg = TERM_DEFAULT.fg;
+      const defBg = TERM_DEFAULT.bg;
+      const f = fg || defFg;
+      const b = bg || defBg;
+      fg = b;
+      bg = f;
     }
+    if (fg) parts.push(`color:${fg}`);
     // dim: opacity だと背景やスタッキングコンテキストに副作用があるため
     // 色の明度を下げる代わりに filter で対応
     if (state.dim && !state.bold) {
       parts.push('filter:brightness(0.5)');
     }
-    if (state.bg) parts.push(`background:${state.bg}`);
+    if (bg) parts.push(`background:${bg}`);
     if (state.bold) parts.push('font-weight:bold');
     if (state.italic) parts.push('font-style:italic');
     const dec = [];
@@ -83,6 +101,16 @@
     if (dec.length) parts.push(`text-decoration:${dec.join(' ')}`);
     return parts.join(';');
   }
+
+  // xterm.js側と揃えるためのデフォルト色(term.js内のTERM_BG/TERM_FGと同値)
+  const TERM_DEFAULT = {
+    get fg() {
+      return document.documentElement.getAttribute('data-theme') === 'pastel' ? '#4a3f35' : '#e0e0e0';
+    },
+    get bg() {
+      return document.documentElement.getAttribute('data-theme') === 'pastel' ? '#faf6f0' : '#1a1a1a';
+    },
+  };
 
   // params配列から色を読み取り、消費した要素数を返す
   // mode=38/48のとき次の要素を確認して色を決定
@@ -113,21 +141,28 @@
     while (i < params.length) {
       const p = params[i];
       if (p === 0) {
-        state.fg = null; state.bg = null;
+        state.fg = null; state.bg = null; state.basicFgIndex = null;
         state.bold = false; state.dim = false;
         state.italic = false; state.underline = false; state.strike = false;
+        state.reverse = false;
       } else if (p === 1) { state.bold = true; }
       else if (p === 2) { state.dim = true; }
       else if (p === 3) { state.italic = true; }
       else if (p === 4) { state.underline = true; }
+      else if (p === 7) { state.reverse = true; }
       else if (p === 9) { state.strike = true; }
-      else if (p >= 30 && p <= 37) { state.fg = getBasicColors()[p - 30]; }
+      else if (p === 22) { state.bold = false; state.dim = false; }
+      else if (p === 23) { state.italic = false; }
+      else if (p === 24) { state.underline = false; }
+      else if (p === 27) { state.reverse = false; }
+      else if (p === 29) { state.strike = false; }
+      else if (p >= 30 && p <= 37) { state.fg = getBasicColors()[p - 30]; state.basicFgIndex = p - 30; }
       else if (p === 38) {
         const { color, skip } = readColor(params, i);
-        if (color) state.fg = color;
+        if (color) { state.fg = color; state.basicFgIndex = null; }
         i += skip;
       }
-      else if (p === 39) { state.fg = null; }
+      else if (p === 39) { state.fg = null; state.basicFgIndex = null; }
       else if (p >= 40 && p <= 47) { state.bg = getBasicColors()[p - 40]; }
       else if (p === 48) {
         const { color, skip } = readColor(params, i);
@@ -135,7 +170,7 @@
         i += skip;
       }
       else if (p === 49) { state.bg = null; }
-      else if (p >= 90 && p <= 97) { state.fg = getBasicColors()[p - 90 + 8]; }
+      else if (p >= 90 && p <= 97) { state.fg = getBasicColors()[p - 90 + 8]; state.basicFgIndex = null; }
       else if (p >= 100 && p <= 107) { state.bg = getBasicColors()[p - 100 + 8]; }
       i++;
     }
@@ -147,8 +182,9 @@
 
   function ansiToHtml(text) {
     const state = {
-      fg: null, bg: null,
+      fg: null, bg: null, basicFgIndex: null,
       bold: false, dim: false, italic: false, underline: false, strike: false,
+      reverse: false,
     };
 
     let result = '';
