@@ -645,6 +645,16 @@ button, input, textarea {
 
 .btn-icon:active { background: rgba(255,255,255,0.08); }
 
+/* 詳細画面ヘッダー: 描画エンジン切替(試験的)。少し小さめ+テキストラベルなのでフォントサイズ調整 */
+.btn-renderer-toggle {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  min-width: 40px;
+  color: var(--muted);
+}
+.btn-renderer-toggle[data-current="classic"] { color: var(--accent); }
+
 .btn-toggle {
   display: flex;
   align-items: center;
