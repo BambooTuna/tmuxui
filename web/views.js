@@ -296,7 +296,7 @@ function switchPane(target) {
   }
 
   const size = getSubscribeSize();
-  wsSend({ type: 'subscribe', target, ...(size || {}) });
+  wsSend(subscribePayload(target, size));
 
   if (!xtermEnabled()) {
     loadPaneContent(target);

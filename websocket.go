@@ -53,6 +53,7 @@ type WSMessage struct {
 	Keys         string        `json:"keys,omitempty"`
 	Cols         int           `json:"cols,omitempty"`
 	Rows         int           `json:"rows,omitempty"`
+	Mode         string        `json:"mode,omitempty"` // subscribeの表示モード。"classic"のとき差分ストリーム(pane_snapshot/pane_output)を送らず、300ms tickのpane_contentだけに任せる。
 	UpdateStatus *UpdateStatus `json:"updateStatus,omitempty"`
 }
 
@@ -300,7 +301,9 @@ func (c *Client) readPump() {
 					c.trySend(out)
 				}
 			}
-			if msg.Target != "" {
+			// classicモードは差分ストリーム(pane_snapshot/pane_output)を使わないため購読を張らない。
+			// 表示更新はHubの300msポーリング(pane_content)側に任せる。
+			if msg.Target != "" && msg.Mode != "classic" {
 				c.startSubscription(msg.Target)
 			} else {
 				c.stopSubscription()

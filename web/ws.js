@@ -24,7 +24,7 @@ function connectWS() {
     setWsStatus('connected');
     if (state.currentPane) {
       const size = getSubscribeSize();
-      wsSend({ type: 'subscribe', target: state.currentPane, ...(size || {}) });
+      wsSend(subscribePayload(state.currentPane, size));
     }
   };
 
@@ -63,6 +63,15 @@ function getSubscribeSize() {
   return calcTermSize();
 }
 
+// classicモードではpane_snapshot/pane_output(差分ストリーム)を受け取っても捨てるだけで、
+// 大量のWSメッセージがメインスレッドを詰まらせる。サーバー側でstartSubscriptionをスキップ
+// させるためのモードフラグ。
+function subscribePayload(target, size) {
+  const base = { type: 'subscribe', target, ...(size || {}) };
+  if (!xtermEnabled()) base.mode = 'classic';
+  return base;
+}
+
 // ペインの実サイズが正: pane_listで報告されたサイズとterminalの現在サイズがずれていたら
 // (他クライアントによるリサイズや、resize要求が実クライアント優先で無視された場合など)
 // subscribeを再送してsnapshotから取り直す。サイズが一致すればそこで収束して止まる。
@@ -82,7 +91,7 @@ function checkPaneSizeSync() {
   if (now - lastSizeResyncAt < 1000) return;
   lastSizeResyncAt = now;
   const size = getSubscribeSize();
-  wsSend({ type: 'subscribe', target: state.currentPane, ...(size || {}) });
+  wsSend(subscribePayload(state.currentPane, size));
 }
 
 function handleWSMessage(msg) {

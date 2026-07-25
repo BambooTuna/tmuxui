@@ -119,7 +119,7 @@ function bindEvents() {
     if (xtermEnabled()) {
       // subscribeを再送するとバックエンド側がフルリシンク(snapshot再送)してくれる
       const size = getSubscribeSize();
-      wsSend({ type: 'subscribe', target: state.currentPane, ...(size || {}) });
+      wsSend(subscribePayload(state.currentPane, size));
     } else {
       wsSend({ type: 'refresh', target: state.currentPane });
       if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
