@@ -69,12 +69,17 @@ func checkForUpdate(ctx context.Context) (latest *selfupdate.Release, hasUpdate 
 }
 
 // detectVersion は指定タグ (先頭 v は許容) の Release を取得する。
+// go-selfupdate の DetectVersion は release.TagName との完全一致 (=先頭v付き) を要求するため、
+// v を落とさず、無ければ付けて渡す。
 func detectVersion(ctx context.Context, versionStr string) (*selfupdate.Release, error) {
 	updater, err := newSelfUpdater()
 	if err != nil {
 		return nil, err
 	}
-	v := strings.TrimPrefix(versionStr, "v")
+	v := versionStr
+	if !strings.HasPrefix(v, "v") {
+		v = "v" + v
+	}
 	rel, found, err := updater.DetectVersion(ctx, selfupdate.ParseSlug("BambooTuna/tmuxui"), v)
 	if err != nil {
 		return nil, fmt.Errorf("detect version %s failed: %w", versionStr, err)
