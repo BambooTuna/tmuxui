@@ -184,7 +184,10 @@ function renderPaneContent(content) {
   const el = $('pane-content');
   el.classList.add('has-classic');   // xterm時にセットされる可能性のあるスタイル環境と分離するための明示マーカ
   const atBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + 60;
-  el.innerHTML = `<div class="pane-content-inner">${ansiToHtml(content)}</div>`;
+  // .pane-content-innerはflexコンテナのため、直下にテキスト/spanを置くと
+  // それぞれが独立したflex itemとして縦積みされ改行が壊れる。必ず単一の
+  // .pane-content-textで包み、flex itemを1つに保つ。
+  el.innerHTML = `<div class="pane-content-inner"><div class="pane-content-text">${ansiToHtml(content)}</div></div>`;
   if (atBottom) el.scrollTop = el.scrollHeight;
   bus.emit('render:pane-content-applied');
 }

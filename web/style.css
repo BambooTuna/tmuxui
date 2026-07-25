@@ -726,6 +726,14 @@ button, input, textarea {
   display: flex;
   flex-direction: column;
   justify-content: flex-end;
+  /* 横はみ出し時にpane-contentのoverflow-x:autoでパンできるよう内容幅に追従 */
+  width: max-content;
+  min-width: 100%;
+}
+/* flex直下に生テキスト/spanを置くと個々が別flex itemになり行が分断されるため、
+   renderPaneContentは必ずこの単一ラッパで内容を包む(flex item は常に1個) */
+#pane-content .pane-content-text {
+  white-space: pre;
 }
 
 /* xterm.js使用時: FitAddonは#pane-contentの高さ/幅から.xterm自身のpaddingだけを差し引いて
