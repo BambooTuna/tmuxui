@@ -706,16 +706,26 @@ button, input, textarea {
   user-select: text;
 }
 
-/* 従来(classic)モード: xterm.js側と同じbg/fg/行送りに寄せる(ansi.jsのTERM_DEFAULTと同値)。
-   xterm時は#pane-content:has(.xterm)側でxterm自身が描画するため、こちらの色は影響しない。 */
-#pane-content:not(:has(.xterm)) {
+/* 従来(classic)モード: xterm.js側と同じbg/fg/行送りに寄せる(render/palette.js PALETTE_BG/FGと同値)。
+   .has-classicはrender/classic.jsのrenderPaneContentで明示付与する(旧Safariの:has()互換考慮)。 */
+#pane-content.has-classic {
   background: #1a1a1a;
   color: #e0e0e0;
   line-height: 1.2;
 }
-[data-theme="pastel"] #pane-content:not(:has(.xterm)) {
+[data-theme="pastel"] #pane-content.has-classic {
   background: #faf6f0;
   color: #4a3f35;
+}
+
+/* 短い履歴でpane-contentが余っても内容を下寄せしてターミナルらしく見せる。
+   min-height:100%で親pane-contentの高さを埋め、justify-content:flex-endで内容を底辺へ。
+   長い履歴では内容自身が親を超えるため、pane-contentのoverflow-y:autoでスクロールする。 */
+#pane-content .pane-content-inner {
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
 }
 
 /* xterm.js使用時: FitAddonは#pane-contentの高さ/幅から.xterm自身のpaddingだけを差し引いて

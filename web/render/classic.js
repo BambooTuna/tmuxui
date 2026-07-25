@@ -177,10 +177,14 @@ function ansiToHtml(text) {
 }
 
 // ===== #pane-content への描画 (classicモード) =====
+// 取得したherdr履歴を .pane-content-inner でwrapし、内容が短い時は下寄せ・
+// 長い時は自然に上へオーバーフローさせる(スクロール可能)。ターミナル的な
+// 「最新出力が下、古いのが上」の見た目にモバイルでもなる。
 function renderPaneContent(content) {
   const el = $('pane-content');
+  el.classList.add('has-classic');   // xterm時にセットされる可能性のあるスタイル環境と分離するための明示マーカ
   const atBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + 60;
-  el.innerHTML = ansiToHtml(content);
+  el.innerHTML = `<div class="pane-content-inner">${ansiToHtml(content)}</div>`;
   if (atBottom) el.scrollTop = el.scrollHeight;
   bus.emit('render:pane-content-applied');
 }
