@@ -31,10 +31,20 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - name: Create tag
+      - name: Ensure tag
+        # 既にタグが存在すれば (手動 push 済みなど) スキップ、無ければ作成 & push。
+        # これで手動タグ + workflow_dispatch の重複起動でも失敗しない。
         run: |
-          git tag "v${{ inputs.version }}"
-          git push origin "v${{ inputs.version }}"
+          TAG="v${{ inputs.version }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${TAG}" >/dev/null; then
+            echo "tag ${TAG} already exists on origin — skipping create"
+          else
+            git tag "${TAG}"
+            git push origin "${TAG}"
+          fi
+          # goreleaser がタグを読めるよう local にも fetch
+          git fetch --tags origin
+          git checkout "${TAG}"
 
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
