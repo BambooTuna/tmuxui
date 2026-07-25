@@ -1,3 +1,9 @@
+'use strict';
+
+// WebSocket接続・送受信のみを担う搬送層。描画関数は直接呼ばず、CustomEvent
+// ('ws:pane_content'/'ws:pane_snapshot'/'ws:pane_output'/'ws:pane_list'/'ws:permission'/
+// 'ws:update_status') を dispatch して features/render 側に通知する。
+
 function connectWS() {
   clearTimeout(state.reconnectTimer);
 
@@ -78,9 +84,7 @@ function subscribePayload(target, size) {
 let lastSizeResyncAt = 0;
 function checkPaneSizeSync() {
   if (!xtermEnabled() || !state.currentPane || typeof termGetSize !== 'function') return;
-  const session = state.sessions.find(s => s.name === state.currentSession);
-  const win = session?.windows.find(w => w.index === state.currentWindow);
-  const pane = win?.panes.find(p => p.target === state.currentPane);
+  const pane = findPane(state.currentSession, state.currentWindow, state.currentPane);
   const m = pane && /^(\d+)x(\d+)$/.exec(pane.size);
   if (!m) return;
   const paneCols = parseInt(m[1], 10);
@@ -97,47 +101,34 @@ function checkPaneSizeSync() {
 function handleWSMessage(msg) {
   switch (msg.type) {
     case 'pane_content':
-      if (!xtermEnabled() && msg.target === state.currentPane) {
-        renderPaneContent(msg.content || '');
-      }
+      bus.emit('ws:pane_content', { target: msg.target, content: msg.content });
       break;
 
     case 'pane_snapshot':
-      if (xtermEnabled() && msg.target === state.currentPane) {
-        // ペインの実サイズが正: 書き込む前にterminalをそのサイズへ追従させる
-        if (msg.cols > 0 && msg.rows > 0) termSetSize(msg.cols, msg.rows);
-        termWriteSnapshot(base64ToBytes(msg.data));
-        stopRefreshing();
-      }
+      bus.emit('ws:pane_snapshot', { target: msg.target, cols: msg.cols, rows: msg.rows, data: msg.data });
       break;
 
     case 'pane_output':
-      if (xtermEnabled() && msg.target === state.currentPane) {
-        termWrite(base64ToBytes(msg.data));
-      }
+      bus.emit('ws:pane_output', { target: msg.target, data: msg.data });
       break;
 
     case 'pane_list':
       if (Array.isArray(msg.sessions)) {
         const prevJson = JSON.stringify(state.sessions);
         state.sessions = msg.sessions;
-        if ($('view-sessions').classList.contains('active') && JSON.stringify(msg.sessions) !== prevJson) {
-          renderSessionList();
-        }
-        if (state.currentSession) {
-          renderPaneTabs();
-        }
+        const changed = JSON.stringify(msg.sessions) !== prevJson;
+        bus.emit('ws:pane_list', { sessions: msg.sessions, changed });
         checkPaneSizeSync();
       }
       break;
 
     case 'permission_detected':
-      showPermissionBanner(msg);
+      bus.emit('ws:permission', msg);
       break;
 
     case 'update_status':
-      if (msg.updateStatus && typeof renderUpdateSection === 'function') {
-        renderUpdateSection(msg.updateStatus);
+      if (msg.updateStatus) {
+        bus.emit('ws:update_status', { updateStatus: msg.updateStatus });
       }
       break;
   }
@@ -187,10 +178,10 @@ window.addEventListener('resize', () => {
 
 function sendKeys(target, keys) {
   if (!wsSend({ type: 'send_keys', target, keys })) {
-    apiFetch(`/api/panes/${encodeURIComponent(target)}/keys`, {
+    apiFetchQuiet(`/api/panes/${encodeURIComponent(target)}/keys`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ keys }),
-    }).catch(() => {});
+    });
   }
 }

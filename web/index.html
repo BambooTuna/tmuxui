@@ -11,7 +11,7 @@
   <meta name="theme-color" content="#1a1a2e">
   <link rel="icon" type="image/png" href="icon-192.png">
   <link rel="stylesheet" href="vendor/xterm/xterm.css">
-  <link rel="stylesheet" href="style.css?v=29">
+  <link rel="stylesheet" href="style.css?v=30">
 </head>
 <body>
 
@@ -316,7 +316,7 @@
   </div>
 
   <!-- ===== スニペット項目メニュー ===== -->
-  <div id="snippet-item-menu-overlay" hidden class="sheet-overlay" style="z-index:250">
+  <div id="snippet-item-menu-overlay" hidden class="sheet-overlay">
     <div class="sheet action-sheet">
       <div class="sheet-handle"></div>
       <button id="snippet-item-edit" class="action-sheet-item">編集</button>
@@ -327,14 +327,28 @@
 
   <script src="vendor/xterm/xterm.js"></script>
   <script src="vendor/xterm/addon-fit.js"></script>
-  <script src="term.js?v=22"></script>
-  <script src="settings.js?v=18"></script>
-  <script src="app.js?v=14"></script>
-  <script src="ws.js?v=16"></script>
-  <script src="ansi.js?v=15"></script>
-  <script src="views.js?v=16"></script>
-  <script src="snippet.js?v=14"></script>
-  <script src="filer.js?v=17"></script>
-  <script src="input.js?v=16"></script>
+
+  <!-- core -->
+  <script src="core/state.js?v=1"></script>
+  <script src="core/overlay.js?v=1"></script>
+  <script src="core/prefs.js?v=1"></script>
+
+  <!-- render -->
+  <script src="render/palette.js?v=1"></script>
+  <script src="render/classic.js?v=1"></script>
+  <script src="render/xterm-view.js?v=1"></script>
+
+  <!-- transport -->
+  <script src="transport/ws.js?v=1"></script>
+
+  <!-- features -->
+  <script src="features/sessions.js?v=1"></script>
+  <script src="features/input-bar.js?v=1"></script>
+  <script src="features/settings.js?v=1"></script>
+  <script src="features/filer.js?v=1"></script>
+  <script src="features/snippet.js?v=1"></script>
+
+  <!-- bootstrap -->
+  <script src="bootstrap.js?v=1"></script>
 </body>
 </html>

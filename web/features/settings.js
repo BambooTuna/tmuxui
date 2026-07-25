@@ -24,11 +24,7 @@ function applyTheme(theme, save) {
   updateThemeButtons();
 
   if (save !== false) {
-    apiFetch('/api/preferences', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ theme: theme }),
-    }).catch(() => {});
+    savePreferences({ theme: theme });
   }
 }
 
@@ -64,23 +60,24 @@ function showSettings() {
 }
 
 // ===== アップデート =====
-// currentUpdateStatus / renderUpdateSection は ws.js からの push 再描画でも使うためグローバルに置く
+// currentUpdateStatus / renderUpdateSection は transport/ws.js からの push 再描画でも使うため
+// グローバルに置く(bus経由の 'ws:update_status' イベントで呼ばれる)。
 let currentUpdateStatus = null;
 let currentAutoUpdatePrefs = { enabled: true, autoApply: false, intervalHours: 24 };
 
 async function loadUpdateStatus() {
-  try {
-    const prefs = await apiFetch('/api/preferences');
-    if (prefs.autoUpdate && typeof prefs.autoUpdate === 'object') {
-      currentAutoUpdatePrefs = Object.assign({}, currentAutoUpdatePrefs, prefs.autoUpdate);
-    }
-  } catch {}
+  const prefs = await loadPreferences();
+  if (prefs.autoUpdate && typeof prefs.autoUpdate === 'object') {
+    currentAutoUpdatePrefs = Object.assign({}, currentAutoUpdatePrefs, prefs.autoUpdate);
+  }
   updateAutoUpdateInputs();
 
   try {
     const status = await apiFetch('/api/update/status');
     renderUpdateSection(status);
-  } catch {}
+  } catch (e) {
+    console.warn('アップデート状況の取得に失敗しました', e);
+  }
 
   loadAvailableReleases();
 }
@@ -111,8 +108,8 @@ async function applyUpdateNow() {
   hideUpdateError();
   try {
     await apiFetch('/api/update/apply', { method: 'POST' });
-    // レスポンス後、自プロセスは syscall.Exec で再起動する。WebSocket は自動再接続する(ws.js)ので
-    // ここではメッセージ表示のみ行い、ボタンは無効のままにしておく
+    // レスポンス後、自プロセスは syscall.Exec で再起動する。WebSocket は自動再接続する
+    // (transport/ws.js)ので、ここではメッセージ表示のみ行い、ボタンは無効のままにしておく
     btn.textContent = 'アップデート完了・再接続中…';
   } catch {
     showUpdateError('アップデートの適用に失敗しました');
@@ -178,11 +175,7 @@ function updateAutoUpdateInputs() {
 }
 
 function saveAutoUpdatePrefs() {
-  apiFetch('/api/preferences', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ autoUpdate: currentAutoUpdatePrefs }),
-  }).catch(() => {});
+  savePreferences({ autoUpdate: currentAutoUpdatePrefs });
 }
 
 function setAutoUpdateEnabled(enabled) {
@@ -259,17 +252,21 @@ async function applyVersionSwitch() {
   }
 }
 
-// NOTE: state は app.js で定義されるグローバル変数（DOMContentLoaded 後に参照）
 function hideSettings() {
   document.getElementById('view-settings').classList.remove('active');
-  var returnTo = (typeof state !== 'undefined' && state.settingsReturnView) || 'sessions';
+  var returnTo = state.settingsReturnView || 'sessions';
   document.getElementById(returnTo === 'detail' ? 'view-detail' : 'view-sessions').classList.add('active');
 }
 
-// ページロード時はキャッシュからテーマを即適用（フラッシュ防止）
+// ページロード時はキャッシュからテーマを即適用（フラッシュ防止）。DOMContentLoaded を
+// 待たずスクリプト読み込み時点で実行する必要があるため、initSettings() には含めない。
 applyTheme(getCachedTheme(), false);
 
-document.addEventListener('DOMContentLoaded', () => {
+// ===== transport/ws.js からの通知 =====
+bus.on('ws:update_status', e => renderUpdateSection(e.detail.updateStatus));
+
+// ===== 初期化 =====
+function initSettings() {
   document.getElementById('btn-settings').addEventListener('click', showSettings);
   document.getElementById('btn-settings-back').addEventListener('click', hideSettings);
 
@@ -291,4 +288,4 @@ document.addEventListener('DOMContentLoaded', () => {
   const versionApplyBtn = document.getElementById('update-version-apply-btn');
   if (versionRefreshBtn) versionRefreshBtn.addEventListener('click', loadAvailableReleases);
   if (versionApplyBtn) versionApplyBtn.addEventListener('click', applyVersionSwitch);
-});
+}

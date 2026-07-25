@@ -1,35 +1,18 @@
+'use strict';
+
 // xterm.js表示レイヤー。xtermEnabled()がfalseの間は一切マウントしない(ロールバック用)。
 // vendor UMDビルドのグローバル名: xterm.js本体は window.Terminal (フラットexport)、
 // addon-fitは window.FitAddon.FitAddon (factoryが{FitAddon:class}を返す実装のため入れ子)。
-
-// ansi.js内の非公開パレットをxterm.js用に複製(ansi.jsはwindow.ansiToHtmlしか公開していないため)
-const TERM_DARK_COLORS = [
-  '#555555', '#cc0000', '#4e9a06', '#c4a000',
-  '#3465a4', '#75507b', '#06989a', '#d3d7cf',
-  '#555753', '#ef2929', '#8ae234', '#fce94f',
-  '#729fcf', '#ad7fa8', '#34e2e2', '#eeeeec',
-];
-const TERM_PASTEL_COLORS = [
-  '#6e6e6e', '#a82020', '#2e7d32', '#8a6d00',
-  '#1565c0', '#7b1fa2', '#00838f', '#4a4a4a',
-  '#808080', '#c62828', '#388e3c', '#f9a825',
-  '#1976d2', '#8e24aa', '#00acc1', '#333333',
-];
-const TERM_BG = { dark: '#1a1a1a', pastel: '#faf6f0' };
-const TERM_FG = { dark: '#e0e0e0', pastel: '#4a3f35' };
+// パレットは render/palette.js の定義を参照する(classic/xterm共通)。
 
 let terminal = null;
 let fitAddon = null;
 
-function termThemeName() {
-  return document.documentElement.getAttribute('data-theme') === 'pastel' ? 'pastel' : 'dark';
-}
-
 function termBuildTheme() {
-  const name = termThemeName();
-  const c = name === 'pastel' ? TERM_PASTEL_COLORS : TERM_DARK_COLORS;
+  const name = paletteThemeName();
+  const c = paletteBasicColors();
   return {
-    background: TERM_BG[name], foreground: TERM_FG[name], cursor: TERM_FG[name],
+    background: PALETTE_BG[name], foreground: PALETTE_FG[name], cursor: PALETTE_FG[name],
     black: c[0], red: c[1], green: c[2], yellow: c[3],
     blue: c[4], magenta: c[5], cyan: c[6], white: c[7],
     brightBlack: c[8], brightRed: c[9], brightGreen: c[10], brightYellow: c[11],
@@ -123,6 +106,22 @@ function termGetSize() {
 function termBufferType() {
   return terminal ? terminal.buffer.active.type : 'normal';
 }
+
+// transport/ws.js からの通知。xtermモード時のみ描画する(classic時は無視)。
+bus.on('ws:pane_snapshot', e => {
+  if (xtermEnabled() && e.detail.target === state.currentPane) {
+    // ペインの実サイズが正: 書き込む前にterminalをそのサイズへ追従させる
+    if (e.detail.cols > 0 && e.detail.rows > 0) termSetSize(e.detail.cols, e.detail.rows);
+    termWriteSnapshot(base64ToBytes(e.detail.data));
+    bus.emit('render:pane-snapshot-applied');
+  }
+});
+
+bus.on('ws:pane_output', e => {
+  if (xtermEnabled() && e.detail.target === state.currentPane) {
+    termWrite(base64ToBytes(e.detail.data));
+  }
+});
 
 // ===== リモートスクロールボタン =====
 // ローカルのスワイプ/ホイールは常にxterm.js自身のスクロールバックだけを動かす(#input-area/
@@ -240,5 +239,3 @@ function initRemoteScrollButtons() {
   bindButton(btnUp, false);
   bindButton(btnDown, true);
 }
-
-document.addEventListener('DOMContentLoaded', initRemoteScrollButtons);

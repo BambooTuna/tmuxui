@@ -49,6 +49,14 @@
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left:   env(safe-area-inset-left, 0px);
   --safe-right:  env(safe-area-inset-right, 0px);
+  /* z-index (重なり順の一元管理) */
+  --z-remote-scroll: 40;
+  --z-suggest: 50;
+  --z-drawer-overlay: 150;
+  --z-drawer: 160;
+  --z-overlay: 200;
+  --z-overlay-nested: 250;
+  --z-upload-toast: 500;
 }
 
 /* ===== Pastel Theme ===== */
@@ -77,10 +85,6 @@
 [data-theme="pastel"] .btn-cursor:active { background: rgba(0,0,0,0.08); }
 
 [data-theme="pastel"] .btn-send {
-  color: #fff;
-}
-
-[data-theme="pastel"] .btn-toggle.active {
   color: #fff;
 }
 
@@ -645,31 +649,6 @@ button, input, textarea {
 
 .btn-icon:active { background: rgba(255,255,255,0.08); }
 
-.btn-toggle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 6px 10px;
-  background: var(--bg3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  color: var(--muted);
-  font-family: var(--font-ui);
-  font-size: 10px;
-  font-weight: 700;
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
-
-.btn-toggle.active {
-  background: var(--success);
-  color: #fff;
-  border-color: var(--success);
-}
-
-.btn-toggle:active { opacity: 0.8; }
-
 /* ===== Pane Tabs ===== */
 .pane-tabs {
   display: flex;
@@ -767,7 +746,7 @@ button, input, textarea {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  z-index: 40;
+  z-index: var(--z-remote-scroll);
 }
 /* #pane-content非表示中(ファイラー表示時等)はボタンも隠す(#pane-content表示時のみ意味を持つため) */
 #pane-content[hidden] + .remote-scroll-buttons {
@@ -854,11 +833,6 @@ button, input, textarea {
   color: var(--warn);
 }
 
-.snippet-wrap {
-  position: relative;
-  flex-shrink: 0;
-}
-
 .snippet-menu-sheet {
   display: flex;
   flex-direction: column;
@@ -919,7 +893,7 @@ button, input, textarea {
   border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   max-height: 60vh;
   overflow-y: auto;
-  z-index: 50;
+  z-index: var(--z-suggest);
 }
 
 .cmd-suggest-item {
@@ -1033,10 +1007,7 @@ button, input, textarea {
 
 /* ===== Drawer ===== */
 .drawer-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.5);
-  z-index: 150;
+  z-index: var(--z-drawer-overlay);
 }
 
 .drawer {
@@ -1047,7 +1018,7 @@ button, input, textarea {
   width: 260px;
   background: var(--bg2);
   border-left: 1px solid var(--border);
-  z-index: 160;
+  z-index: var(--z-drawer);
   transform: translateX(100%);
   transition: transform 0.2s ease;
   display: flex;
@@ -1124,13 +1095,6 @@ button, input, textarea {
   background: var(--bg);
 }
 
-.drawer-item-cmd {
-  display: block;
-  font-size: 11px;
-  color: var(--muted);
-  margin-top: 2px;
-}
-
 .drawer-item-path {
   display: block;
   font-size: 11px;
@@ -1178,14 +1142,29 @@ button, input, textarea {
   font-weight: 700;
 }
 
-/* ===== Modal ===== */
-.modal-overlay {
+/* ===== Overlay 共通(モーダル/シート/ドロワーの背景) ===== */
+.drawer-overlay,
+.modal-overlay,
+.sheet-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0,0,0,0.5);
-  z-index: 200;
+}
+
+.modal-overlay,
+.sheet-overlay {
+  z-index: var(--z-overlay);
   display: flex;
   align-items: flex-end;
+}
+
+/* スニペット項目メニューは snippet-sheet-overlay の上に重なるため一段高くする */
+#snippet-item-menu-overlay {
+  z-index: var(--z-overlay-nested);
+}
+
+/* ===== Modal ===== */
+.modal-overlay {
   justify-content: center;
 }
 
@@ -1241,14 +1220,24 @@ button, input, textarea {
 
 .modal-btn:active { opacity: 0.8; }
 
-.modal-btn-cancel {
+/* キャンセル系/確定系ボタンの背景色は filer-create-cancel/-save と共通 */
+.modal-btn-cancel,
+.filer-create-cancel {
   background: var(--bg3);
-  color: var(--text);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
 }
 
-.modal-btn-ok {
+.modal-btn-ok,
+.filer-create-save {
   background: var(--accent);
   color: #fff;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.modal-btn-cancel {
+  color: var(--text);
 }
 
 /* ===== Action Sheet ===== */
@@ -1277,15 +1266,6 @@ button, input, textarea {
 .action-sheet-cancel { color: var(--muted); }
 
 /* ===== Key Sheet ===== */
-.sheet-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.5);
-  z-index: 200;
-  display: flex;
-  align-items: flex-end;
-}
-
 .sheet {
   width: 100%;
   background: var(--bg2);
@@ -1833,22 +1813,15 @@ button, input, textarea {
 }
 .filer-create-cancel {
   padding: 8px 16px;
-  background: var(--bg3);
   color: var(--muted);
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
   font-size: 14px;
-  cursor: pointer;
 }
 .filer-create-save {
   padding: 8px 16px;
-  background: var(--accent);
-  color: #fff;
   border: none;
-  border-radius: var(--radius-sm);
   font-size: 14px;
   font-weight: 600;
-  cursor: pointer;
 }
 .filer-create-save:active { opacity: 0.7; }
 
@@ -1868,7 +1841,7 @@ button, input, textarea {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   padding: 12px 14px;
-  z-index: 500;
+  z-index: var(--z-upload-toast);
   box-shadow: 0 4px 20px rgba(0,0,0,0.3);
 }
 

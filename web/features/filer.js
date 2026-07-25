@@ -31,9 +31,7 @@ function toggleFiler() {
   const sessionName = state.currentSession;
   if (!sessionName) return;
 
-  const session = state.sessions.find(s => s.name === sessionName);
-  const win = session?.windows.find(w => w.index === state.currentWindow);
-  const pane = win?.panes.find(p => p.target === state.currentPane);
+  const pane = findPane(sessionName, state.currentWindow, state.currentPane);
 
   initFilerForSession(sessionName, pane?.path || '');
   const fs = getFilerState(sessionName);
@@ -71,6 +69,11 @@ function currentFilerState() {
   return getFilerState(state.currentSession);
 }
 
+// /api/filer/{raw,download} の URL 組み立てを1箇所に集約。
+function filerUrl(endpoint, filePath, rootPath) {
+  return `/api/filer/${endpoint}?path=${encodeURIComponent(filePath)}&root=${encodeURIComponent(rootPath)}&token=${encodeURIComponent(state.token)}`;
+}
+
 async function loadFilerDir(path) {
   const fs = currentFilerState();
   if (!fs) return;
@@ -97,7 +100,7 @@ async function loadFilerFile(filePath) {
   const mediaType = filerMediaType(filePath);
 
   if (mediaType === 'image') {
-    const rawUrl = `/api/filer/raw?path=${encodeURIComponent(filePath)}&root=${encodeURIComponent(fs.rootPath)}&token=${encodeURIComponent(state.token)}`;
+    const rawUrl = filerUrl('raw', filePath, fs.rootPath);
     const img = document.createElement('img');
     img.className = 'filer-image-preview';
     img.alt = filePath.split('/').pop();
@@ -118,7 +121,7 @@ async function loadFilerFile(filePath) {
   }
 
   if (mediaType === 'video') {
-    const rawUrl = `/api/filer/raw?path=${encodeURIComponent(filePath)}&root=${encodeURIComponent(fs.rootPath)}&token=${encodeURIComponent(state.token)}`;
+    const rawUrl = filerUrl('raw', filePath, fs.rootPath);
     const video = document.createElement('video');
     video.className = 'filer-video-preview';
     video.controls = true;
@@ -131,7 +134,7 @@ async function loadFilerFile(filePath) {
   }
 
   if (mediaType === 'audio') {
-    const rawUrl = `/api/filer/raw?path=${encodeURIComponent(filePath)}&root=${encodeURIComponent(fs.rootPath)}&token=${encodeURIComponent(state.token)}`;
+    const rawUrl = filerUrl('raw', filePath, fs.rootPath);
     const wrap = document.createElement('div');
     wrap.className = 'filer-audio-wrap';
     const icon = document.createElement('div');
@@ -153,7 +156,7 @@ async function loadFilerFile(filePath) {
   }
 
   if (mediaType === 'pdf') {
-    const pdfUrl = `/api/filer/raw?path=${encodeURIComponent(filePath)}&root=${encodeURIComponent(fs.rootPath)}&token=${encodeURIComponent(state.token)}`;
+    const pdfUrl = filerUrl('raw', filePath, fs.rootPath);
     const wrap = document.createElement('div');
     wrap.className = 'filer-pdf-fallback';
     wrap.innerHTML =
@@ -190,7 +193,7 @@ async function loadFilerFile(filePath) {
     actions.className = 'filer-file-actions';
     const ext = (filePath.match(/\.[^.]+$/) || [''])[0].toLowerCase();
     if (ext === '.html' || ext === '.htm') {
-      const previewUrl = `/api/filer/raw?path=${encodeURIComponent(filePath)}&root=${encodeURIComponent(fs.rootPath)}&token=${encodeURIComponent(state.token)}`;
+      const previewUrl = filerUrl('raw', filePath, fs.rootPath);
       const previewBtn = document.createElement('a');
       previewBtn.href = previewUrl;
       previewBtn.target = '_blank';
@@ -337,7 +340,7 @@ function handleFilerUp() {
 
 function filerDownloadBtn(filePath) {
   const fs = currentFilerState();
-  const url = `/api/filer/download?path=${encodeURIComponent(filePath)}&root=${encodeURIComponent(fs.rootPath)}&token=${encodeURIComponent(state.token)}`;
+  const url = filerUrl('download', filePath, fs.rootPath);
   const btn = document.createElement('a');
   btn.href = url;
   btn.className = 'filer-download-btn';
@@ -612,4 +615,12 @@ function syncFilerOnSessionSwitch() {
     hideFilerPanel();
     $('btn-filer').classList.remove('active');
   }
+}
+
+// ===== 初期化 =====
+function initFiler() {
+  $('btn-filer').addEventListener('click', toggleFiler);
+  $('btn-filer-up').addEventListener('click', handleFilerUp);
+  $('btn-filer-new-md').addEventListener('click', filerCreateMd);
+  initFilerUpload();
 }

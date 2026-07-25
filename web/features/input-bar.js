@@ -1,3 +1,5 @@
+'use strict';
+
 // ===== Claude Code Commands =====
 const DEFAULT_CLAUDE_COMMANDS = [
   { cmd: '/bug',           desc: 'バグを報告' },
@@ -47,7 +49,9 @@ async function fetchClaudeCommands() {
         cmd: '/' + c.name, desc: c.description,
       }));
     }
-  } catch {}
+  } catch (e) {
+    console.warn('claude commands の取得に失敗しました', e);
+  }
 }
 
 function getClaudeCommands() {
@@ -66,34 +70,86 @@ function populateCommandSheet() {
     btn.addEventListener('click', () => {
       $('cmd-input').value = item.cmd;
       $('cmd-input').focus();
-      $('keys-sheet-overlay').hidden = true;
+      keysSheet.hide();
     });
     cmdList.appendChild(btn);
   }
 }
 
-// ===== Events =====
-function bindEvents() {
-  // Back
-  $('btn-back').addEventListener('click', showSessionList);
+// ===== キーシート(その他キー) =====
+const keysSheet = createOverlay('keys-sheet-overlay', {
+  onShow: () => {
+    $('sheet-categories').hidden = false;
+    $('sheet-ctrl').hidden = true;
+    $('sheet-commands').hidden = true;
+  },
+});
 
-  // Refresh
-  $('btn-refresh').addEventListener('click', () => {
-    if (!state.currentPane || state.refreshing) return;
-    startRefreshing();
-    if (xtermEnabled()) {
-      // subscribeを再送するとバックエンド側がフルリシンク(snapshot再送)してくれる
-      const size = getSubscribeSize();
-      wsSend(subscribePayload(state.currentPane, size));
-    } else {
-      wsSend({ type: 'refresh', target: state.currentPane });
-      if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
-        loadPaneContent(state.currentPane);
-      }
+// ===== スニペットクイック挿入メニュー =====
+const snippetMenuOverlay = createOverlay('snippet-menu-overlay');
+
+async function renderSnippetMenu() {
+  const el = $('snippet-menu');
+  el.innerHTML = '';
+  try {
+    const data = await apiFetch('/api/snippets');
+    const snippets = data.snippets || [];
+    if (!snippets.length) {
+      const p = document.createElement('div');
+      p.className = 'snippet-item';
+      p.textContent = '(snippets/ にファイルを追加)';
+      el.appendChild(p);
     }
-    setTimeout(stopRefreshing, 5000);
-  });
+    for (const snip of snippets) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'snippet-item';
+      btn.textContent = snip.label;
+      btn.addEventListener('click', async () => {
+        try {
+          const d = await apiFetch(`/api/snippets/${encodeURIComponent(snip.name)}`);
+          if (d.content) {
+            const inp = $('cmd-input');
+            inp.value += d.content;
+            inp.focus();
+          }
+        } catch (e) {
+          console.warn('スニペットの取得に失敗しました', e);
+        }
+        closeSnippetMenu();
+      });
+      el.appendChild(btn);
+    }
+    const manage = document.createElement('button');
+    manage.type = 'button';
+    manage.className = 'snippet-item';
+    manage.style.color = 'var(--accent)';
+    manage.textContent = '管理...';
+    manage.addEventListener('click', () => {
+      closeSnippetMenu();
+      openSnippetSheet();
+    });
+    el.appendChild(manage);
+  } catch (e) {
+    console.warn('スニペット一覧の取得に失敗しました', e);
+  }
+}
 
+function toggleSnippetMenu() {
+  if (snippetMenuOverlay.el.hidden) {
+    renderSnippetMenu();
+    snippetMenuOverlay.show();
+  } else {
+    closeSnippetMenu();
+  }
+}
+
+function closeSnippetMenu() {
+  snippetMenuOverlay.hide();
+}
+
+// ===== 初期化 =====
+function initInputBar() {
   // Cursor keys
   $('btn-up').addEventListener('click', () => {
     if (state.currentPane) sendKeys(state.currentPane, 'Up');
@@ -123,43 +179,8 @@ function bindEvents() {
     if (state.currentPane) sendKeys(state.currentPane, 'Enter');
   });
 
-  // Filer
-  $('btn-filer').addEventListener('click', toggleFiler);
-  $('btn-filer-up').addEventListener('click', handleFilerUp);
-  $('btn-filer-new-md').addEventListener('click', filerCreateMd);
-  initFilerUpload();
-
-  // New session
-  $('btn-new-session').addEventListener('click', createSession);
-
-  // Card menu actions
-  $('card-menu-pin').addEventListener('click', () => {
-    if (cardMenuTarget) togglePinSession(cardMenuTarget);
-    closeCardMenu();
-  });
-  $('card-menu-rename').addEventListener('click', () => {
-    if (cardMenuTarget) renameSession(cardMenuTarget);
-    closeCardMenu();
-  });
-  $('card-menu-delete').addEventListener('click', () => {
-    if (cardMenuTarget) deleteSession(cardMenuTarget);
-    closeCardMenu();
-  });
-
   // Keys sheet
-  function openSheet() {
-    $('sheet-categories').hidden = false;
-    $('sheet-ctrl').hidden = true;
-    $('sheet-commands').hidden = true;
-    $('keys-sheet-overlay').hidden = false;
-  }
-  function closeSheet() {
-    $('keys-sheet-overlay').hidden = true;
-  }
-  $('btn-keys-more').addEventListener('click', openSheet);
-  $('keys-sheet-overlay').addEventListener('click', e => {
-    if (e.target === $('keys-sheet-overlay')) closeSheet();
-  });
+  $('btn-keys-more').addEventListener('click', keysSheet.show);
   for (const btn of $('keys-sheet-overlay').querySelectorAll('.sheet-category')) {
     btn.addEventListener('click', () => {
       $('sheet-categories').hidden = true;
@@ -187,7 +208,7 @@ function bindEvents() {
       const inp = $('cmd-input');
       inp.value += btn.dataset.cmd;
       inp.focus();
-      closeSheet();
+      keysSheet.hide();
     });
   }
 
@@ -253,127 +274,4 @@ function bindEvents() {
 
   // Snippet popup
   $('btn-snippet').addEventListener('click', toggleSnippetMenu);
-
-  // Card menu overlay
-  $('card-menu-overlay').addEventListener('click', e => {
-    if (e.target === $('card-menu-overlay')) closeCardMenu();
-  });
-  $('card-menu-cancel').addEventListener('click', closeCardMenu);
-
-  // Snippet menu overlay
-  $('snippet-menu-overlay').addEventListener('click', e => {
-    if (e.target === $('snippet-menu-overlay')) closeSnippetMenu();
-  });
-
-  // Snippet management sheet
-  initSnippetSheet();
-
-  // Drawer
-  $('btn-menu').addEventListener('click', openDrawer);
-  $('drawer-overlay').addEventListener('click', closeDrawer);
-
-  // Auto approve toggle
-  $('btn-auto-approve').addEventListener('click', () => {
-    state.autoApprove = !state.autoApprove;
-    $('btn-auto-approve').classList.toggle('active', state.autoApprove);
-  });
-
-  // Permission dismiss
-  $('btn-perm-dismiss').addEventListener('click', hidePermissionBanner);
-
-  // Window sheet
-  $('breadcrumb-window').addEventListener('click', openWindowSheet);
-  $('window-sheet-overlay').addEventListener('click', e => {
-    if (e.target === $('window-sheet-overlay')) closeWindowSheet();
-  });
-
-  // Window menu
-  $('window-menu-overlay').addEventListener('click', e => {
-    if (e.target === $('window-menu-overlay')) closeWindowMenu();
-  });
-  $('window-menu-cancel').addEventListener('click', closeWindowMenu);
-  $('window-menu-rename').addEventListener('click', () => {
-    if (windowMenuTarget) renameWindow(windowMenuTarget.session, windowMenuTarget.index);
-    closeWindowMenu();
-  });
-  $('window-menu-add').addEventListener('click', () => {
-    closeWindowMenu();
-    createWindow();
-  });
-  $('window-menu-close').addEventListener('click', () => {
-    if (windowMenuTarget) deleteWindow(windowMenuTarget.session, windowMenuTarget.index);
-    closeWindowMenu();
-  });
-
-  // Android hardware back
-  window.addEventListener('popstate', () => {
-    if ($('drawer').classList.contains('open')) {
-      closeDrawer();
-      history.pushState(null, '');
-      return;
-    }
-    if ($('view-detail').classList.contains('active')) {
-      showSessionList();
-      history.pushState(null, '');
-    }
-  });
-  history.pushState(null, '');
-}
-
-// ===== Snippet Popup Menu =====
-async function renderSnippetMenu() {
-  const el = $('snippet-menu');
-  el.innerHTML = '';
-  try {
-    const data = await apiFetch('/api/snippets');
-    const snippets = data.snippets || [];
-    if (!snippets.length) {
-      const p = document.createElement('div');
-      p.className = 'snippet-item';
-      p.textContent = '(snippets/ にファイルを追加)';
-      el.appendChild(p);
-    }
-    for (const snip of snippets) {
-      const btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'snippet-item';
-      btn.textContent = snip.label;
-      btn.addEventListener('click', async () => {
-        try {
-          const d = await apiFetch(`/api/snippets/${encodeURIComponent(snip.name)}`);
-          if (d.content) {
-            const inp = $('cmd-input');
-            inp.value += d.content;
-            inp.focus();
-          }
-        } catch {}
-        closeSnippetMenu();
-      });
-      el.appendChild(btn);
-    }
-    const manage = document.createElement('button');
-    manage.type = 'button';
-    manage.className = 'snippet-item';
-    manage.style.color = 'var(--accent)';
-    manage.textContent = '管理...';
-    manage.addEventListener('click', () => {
-      closeSnippetMenu();
-      openSnippetSheet();
-    });
-    el.appendChild(manage);
-  } catch {}
-}
-
-function toggleSnippetMenu() {
-  const el = $('snippet-menu-overlay');
-  if (el.hidden) {
-    renderSnippetMenu();
-    el.hidden = false;
-  } else {
-    closeSnippetMenu();
-  }
-}
-
-function closeSnippetMenu() {
-  $('snippet-menu-overlay').hidden = true;
 }

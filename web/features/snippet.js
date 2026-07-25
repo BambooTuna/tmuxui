@@ -1,20 +1,21 @@
+'use strict';
+
 // ===== Snippet Management Sheet =====
 let snippetEditTarget = null;
 let snippetMenuTarget = null;
 
+const snippetSheetOverlay = createOverlay('snippet-sheet-overlay');
+const snippetItemMenuOverlay = createOverlay('snippet-item-menu-overlay', {
+  onHide: () => { snippetMenuTarget = null; },
+});
+
 function initSnippetSheet() {
-  $('snippet-sheet-overlay').addEventListener('click', e => {
-    if (e.target === $('snippet-sheet-overlay')) closeSnippetSheet();
-  });
   $('btn-snippet-create').addEventListener('click', startCreateSnippet);
   $('snippet-edit-back').addEventListener('click', backToSnippetList);
   $('snippet-edit-cancel').addEventListener('click', backToSnippetList);
   $('snippet-edit-save').addEventListener('click', saveSnippet);
 
   // Snippet item menu (edit/delete/cancel)
-  $('snippet-item-menu-overlay').addEventListener('click', e => {
-    if (e.target === $('snippet-item-menu-overlay')) closeSnippetItemMenu();
-  });
   $('snippet-item-edit').addEventListener('click', () => {
     if (snippetMenuTarget) editSnippet(snippetMenuTarget.name);
     closeSnippetItemMenu();
@@ -34,12 +35,12 @@ function backToSnippetList() {
 function openSnippetSheet() {
   $('snippet-sheet-list').hidden = false;
   $('snippet-sheet-edit').hidden = true;
-  $('snippet-sheet-overlay').hidden = false;
+  snippetSheetOverlay.show();
   renderSnippetSheetItems();
 }
 
 function closeSnippetSheet() {
-  $('snippet-sheet-overlay').hidden = true;
+  snippetSheetOverlay.hide();
 }
 
 async function renderSnippetSheetItems() {
@@ -64,17 +65,18 @@ async function renderSnippetSheetItems() {
       });
       el.appendChild(row);
     }
-  } catch {}
+  } catch (e) {
+    console.warn('スニペット一覧の取得に失敗しました', e);
+  }
 }
 
 function openSnippetItemMenu(snip) {
   snippetMenuTarget = snip;
-  $('snippet-item-menu-overlay').hidden = false;
+  snippetItemMenuOverlay.show();
 }
 
 function closeSnippetItemMenu() {
-  $('snippet-item-menu-overlay').hidden = true;
-  snippetMenuTarget = null;
+  snippetItemMenuOverlay.hide();
 }
 
 async function editSnippet(name) {
@@ -83,7 +85,8 @@ async function editSnippet(name) {
     const data = await apiFetch(`/api/snippets/${encodeURIComponent(name)}`);
     $('snippet-edit-name').value = name;
     $('snippet-edit-content').value = data.content || '';
-  } catch {
+  } catch (e) {
+    console.warn('スニペットの取得に失敗しました', e);
     $('snippet-edit-name').value = name;
     $('snippet-edit-content').value = '';
   }
@@ -109,7 +112,9 @@ async function saveSnippet() {
         body: JSON.stringify({ name, content }),
       });
     }
-  } catch {}
+  } catch (e) {
+    console.warn('スニペットの保存に失敗しました', e);
+  }
   backToSnippetList();
   renderSnippetSheetItems();
 }
@@ -123,7 +128,9 @@ async function deleteSnippetItem(name, label) {
   if (!ok) return;
   try {
     await apiFetch(`/api/snippets/${encodeURIComponent(name)}`, { method: 'DELETE' });
-  } catch {}
+  } catch (e) {
+    console.warn('スニペットの削除に失敗しました', e);
+  }
   renderSnippetSheetItems();
 }
 

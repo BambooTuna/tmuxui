@@ -1,66 +1,9 @@
-// ===== Modal =====
-function showModal({ message, input, inputValue, input2, input2Placeholder, okLabel, okDanger }) {
-  return new Promise(resolve => {
-    $('modal-message').textContent = message;
-    const inp = $('modal-input');
-    const inp2 = $('modal-input2');
-    const okBtn = $('modal-ok');
-    if (input) {
-      inp.hidden = false;
-      inp.value = inputValue || '';
-    } else {
-      inp.hidden = true;
-    }
-    if (input2) {
-      inp2.hidden = false;
-      inp2.value = '';
-      inp2.placeholder = input2Placeholder || '';
-    } else {
-      inp2.hidden = true;
-    }
-    okBtn.textContent = okLabel || 'OK';
-    okBtn.style.background = okDanger ? 'var(--error)' : 'var(--accent)';
-    $('modal-overlay').hidden = false;
-    if (input) inp.focus();
-
-    function cleanup() {
-      $('modal-overlay').hidden = true;
-      okBtn.removeEventListener('click', onOk);
-      $('modal-cancel').removeEventListener('click', onCancel);
-      $('modal-overlay').removeEventListener('click', onOverlay);
-      inp.removeEventListener('keydown', onKey);
-      inp2.removeEventListener('keydown', onKey);
-    }
-    function onOk() {
-      cleanup();
-      if (input2) {
-        resolve({ value: inp.value.trim(), value2: inp2.value.trim() });
-      } else {
-        resolve(input ? inp.value.trim() : true);
-      }
-    }
-    function onCancel() {
-      cleanup();
-      resolve(null);
-    }
-    function onOverlay(e) {
-      if (e.target === $('modal-overlay')) { cleanup(); resolve(null); }
-    }
-    function onKey(e) {
-      if (e.key === 'Enter') { e.preventDefault(); onOk(); }
-    }
-    okBtn.addEventListener('click', onOk);
-    $('modal-cancel').addEventListener('click', onCancel);
-    $('modal-overlay').addEventListener('click', onOverlay);
-    if (input) inp.addEventListener('keydown', onKey);
-    if (input2) inp2.addEventListener('keydown', onKey);
-  });
-}
+'use strict';
 
 // ===== Session Management =====
 // セッション名(プレフィックスなし、表示用)からAPI呼び出し用の"backend:name"識別子を組み立てる
 function sessionFullId(name) {
-  const session = state.sessions.find(s => s.name === name);
+  const session = findSession(name);
   return session ? `${session.backend}:${name}` : name;
 }
 
@@ -116,7 +59,7 @@ async function deleteWindow(sessionName, windowIndex) {
   if (!ok) return;
   await apiFetch(`/api/sessions/${encodeURIComponent(sessionFullId(sessionName))}/windows/${windowIndex}`, { method: 'DELETE' });
   await loadSessions();
-  const session = state.sessions.find(s => s.name === sessionName);
+  const session = findSession(sessionName);
   if (!session || session.windows.length === 0) {
     showSessionList();
   } else if (state.currentSession === sessionName && state.currentWindow === windowIndex) {
@@ -125,8 +68,7 @@ async function deleteWindow(sessionName, windowIndex) {
 }
 
 async function renameWindow(sessionName, windowIndex) {
-  const session = state.sessions.find(s => s.name === sessionName);
-  const win = session?.windows.find(w => w.index === windowIndex);
+  const win = findWindow(sessionName, windowIndex);
   const newName = await showModal({ message: '新しいWindow名', input: true, inputValue: win?.name || '', okLabel: '変更' });
   if (!newName) return;
   await apiFetch(`/api/sessions/${encodeURIComponent(sessionFullId(sessionName))}/windows/${windowIndex}/rename`, {
@@ -143,9 +85,8 @@ async function closePane(target) {
   if (!ok) return;
   await apiFetch(`/api/panes/${encodeURIComponent(target)}`, { method: 'DELETE' });
   await loadSessions();
-  const session = state.sessions.find(s => s.name === state.currentSession);
-  const win = session?.windows.find(w => w.index === state.currentWindow);
-  if (!session || !win || win.panes.length === 0) {
+  const win = findWindow(state.currentSession, state.currentWindow);
+  if (!win || win.panes.length === 0) {
     showSessionList();
   } else if (state.currentPane === target) {
     showWindowDetail(state.currentSession, state.currentWindow);
@@ -170,29 +111,35 @@ async function addPane() {
 // ===== Card Menu =====
 let cardMenuTarget = null;
 
+const cardMenuOverlay = createOverlay('card-menu-overlay', {
+  onHide: () => { cardMenuTarget = null; },
+});
+
 function openCardMenu(sessionName) {
   cardMenuTarget = sessionName;
   const pinBtn = $('card-menu-pin');
   if (pinBtn) pinBtn.textContent = isPinned(sessionName) ? 'ピン解除' : 'ピン留め';
-  $('card-menu-overlay').hidden = false;
+  cardMenuOverlay.show();
 }
 
 function closeCardMenu() {
-  $('card-menu-overlay').hidden = true;
-  cardMenuTarget = null;
+  cardMenuOverlay.hide();
 }
 
 // ===== Window Menu =====
 let windowMenuTarget = null;
 
+const windowMenuOverlay = createOverlay('window-menu-overlay', {
+  onHide: () => { windowMenuTarget = null; },
+});
+
 function openWindowMenu(sessionName, windowIndex) {
   windowMenuTarget = { session: sessionName, index: windowIndex };
-  $('window-menu-overlay').hidden = false;
+  windowMenuOverlay.show();
 }
 
 function closeWindowMenu() {
-  $('window-menu-overlay').hidden = true;
-  windowMenuTarget = null;
+  windowMenuOverlay.hide();
 }
 
 // ===== Data Loading =====
@@ -200,7 +147,9 @@ async function loadSessions() {
   try {
     const data = await apiFetch('/api/sessions');
     state.sessions = data.sessions || [];
-  } catch {}
+  } catch (e) {
+    console.warn('セッション一覧の取得に失敗しました', e);
+  }
   autoSelectTopTab();
   renderSessionList();
 }
@@ -250,8 +199,7 @@ function showWindowDetail(sessionName, windowIndex) {
   $('view-detail').classList.add('active');
   $('cmd-input').value = '';
 
-  const session = state.sessions.find(s => s.name === sessionName);
-  const win = session?.windows.find(w => w.index === windowIndex);
+  const win = findWindow(sessionName, windowIndex);
   if (win && win.panes.length > 0) {
     renderPaneTabs();
     switchPane(win.panes[0].target);
@@ -266,10 +214,10 @@ function showWindowDetail(sessionName, windowIndex) {
 }
 
 function updateBreadcrumb() {
-  const session = state.sessions.find(s => s.name === state.currentSession);
+  const session = findSession(state.currentSession);
   $('breadcrumb-session').textContent = session ? sessionDisplayName(session) : (state.currentSession || '');
   if (session && session.windows.length > 1) {
-    const win = session.windows.find(w => w.index === state.currentWindow);
+    const win = findWindow(state.currentSession, state.currentWindow);
     $('breadcrumb-sep').hidden = false;
     $('breadcrumb-window').hidden = false;
     $('breadcrumb-window').textContent = win ? win.name || `${win.index}` : '';
@@ -312,16 +260,17 @@ function switchWindow(windowIndex) {
   state.currentWindow = windowIndex;
   updateBreadcrumb();
 
-  const session = state.sessions.find(s => s.name === state.currentSession);
-  const win = session?.windows.find(w => w.index === windowIndex);
+  const win = findWindow(state.currentSession, windowIndex);
   if (win && win.panes.length > 0) {
     renderPaneTabs();
     switchPane(win.panes[0].target);
   }
 }
 
+const windowSheetOverlay = createOverlay('window-sheet-overlay');
+
 function openWindowSheet() {
-  const session = state.sessions.find(s => s.name === state.currentSession);
+  const session = findSession(state.currentSession);
   if (!session) return;
 
   $('window-sheet-header').textContent = sessionDisplayName(session) + ' の Windows';
@@ -366,11 +315,11 @@ function openWindowSheet() {
   });
   el.appendChild(addBtn);
 
-  $('window-sheet-overlay').hidden = false;
+  windowSheetOverlay.show();
 }
 
 function closeWindowSheet() {
-  $('window-sheet-overlay').hidden = true;
+  windowSheetOverlay.hide();
 }
 
 // ===== Pane Label =====
@@ -619,11 +568,7 @@ function togglePinSession(name) {
     state.pinnedSessions = [...state.pinnedSessions, name];
   }
   renderSessionList();
-  apiFetch('/api/preferences', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ pinnedSessions: state.pinnedSessions }),
-  }).catch(() => {});
+  savePreferences({ pinnedSessions: state.pinnedSessions });
 }
 
 function renderPaneTabs() {
@@ -631,8 +576,7 @@ function renderPaneTabs() {
   const el = $('pane-tabs');
   el.innerHTML = '';
 
-  const session = state.sessions.find(s => s.name === state.currentSession);
-  const win = session?.windows.find(w => w.index === state.currentWindow);
+  const win = findWindow(state.currentSession, state.currentWindow);
   if (!win) return;
 
   const labels = paneLabels(win.panes);
@@ -652,8 +596,7 @@ function renderDrawerPanes() {
   const el = $('drawer-pane-list');
   el.innerHTML = '';
 
-  const session = state.sessions.find(s => s.name === state.currentSession);
-  const win = session?.windows.find(w => w.index === state.currentWindow);
+  const win = findWindow(state.currentSession, state.currentWindow);
   if (!win) return;
 
   const labels = paneLabels(win.panes);
@@ -679,7 +622,7 @@ function renderDrawerPanes() {
           const orig = pathEl.textContent;
           pathEl.textContent = 'コピー済';
           setTimeout(() => { pathEl.textContent = orig; }, 1000);
-        }).catch(() => {});
+        }).catch(e => console.warn('パスのコピーに失敗しました', e));
       });
     }
     row.appendChild(btn);
@@ -708,14 +651,14 @@ function renderDrawerPanes() {
   el.appendChild(addBtn);
 }
 
+const paneDrawer = createDrawer('drawer-overlay', 'drawer');
+
 function openDrawer() {
-  $('drawer-overlay').hidden = false;
-  $('drawer').classList.add('open');
+  paneDrawer.show();
 }
 
 function closeDrawer() {
-  $('drawer-overlay').hidden = true;
-  $('drawer').classList.remove('open');
+  paneDrawer.hide();
 }
 
 function updateActiveTab() {
@@ -727,14 +670,6 @@ function updateActiveTab() {
   for (const item of items) {
     item.classList.toggle('active', item.dataset.target === state.currentPane);
   }
-}
-
-function renderPaneContent(content) {
-  const el = $('pane-content');
-  const atBottom = el.scrollHeight - el.scrollTop <= el.clientHeight + 60;
-  el.innerHTML = ansiToHtml(content);
-  if (atBottom) el.scrollTop = el.scrollHeight;
-  stopRefreshing();
 }
 
 // ===== Refresh =====
@@ -764,15 +699,111 @@ function hidePermissionBanner() {
   state.pendingPermission = null;
 }
 
-// ===== Top Tabs (init) =====
-// #input-area/input.jsのbindEvents()には手を加えないため、セグメンテッドタブの
-// イベント登録はここで自前で行う(settings.jsのbtn-settings系と同じパターン)。
-document.addEventListener('DOMContentLoaded', () => {
-  const wrap = $('top-tabs');
-  if (!wrap) return;
-  wrap.querySelectorAll('.top-tab-btn').forEach(btn => {
-    btn.addEventListener('click', () => setTopTab(btn.dataset.tab));
-  });
-  renderTopTabs();
+// ===== transport/ws.js からの通知 =====
+bus.on('ws:pane_list', e => {
+  if ($('view-sessions').classList.contains('active') && e.detail.changed) {
+    renderSessionList();
+  }
+  if (state.currentSession) {
+    renderPaneTabs();
+  }
 });
 
+bus.on('ws:permission', e => showPermissionBanner(e.detail));
+
+bus.on('render:pane-content-applied', stopRefreshing);
+bus.on('render:pane-snapshot-applied', stopRefreshing);
+
+// ===== 初期化 =====
+function initSessions() {
+  // Back
+  $('btn-back').addEventListener('click', showSessionList);
+
+  // Refresh
+  $('btn-refresh').addEventListener('click', () => {
+    if (!state.currentPane || state.refreshing) return;
+    startRefreshing();
+    if (xtermEnabled()) {
+      // subscribeを再送するとバックエンド側がフルリシンク(snapshot再送)してくれる
+      const size = getSubscribeSize();
+      wsSend(subscribePayload(state.currentPane, size));
+    } else {
+      wsSend({ type: 'refresh', target: state.currentPane });
+      if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
+        loadPaneContent(state.currentPane);
+      }
+    }
+    setTimeout(stopRefreshing, 5000);
+  });
+
+  // New session
+  $('btn-new-session').addEventListener('click', createSession);
+
+  // Card menu actions
+  $('card-menu-pin').addEventListener('click', () => {
+    if (cardMenuTarget) togglePinSession(cardMenuTarget);
+    closeCardMenu();
+  });
+  $('card-menu-rename').addEventListener('click', () => {
+    if (cardMenuTarget) renameSession(cardMenuTarget);
+    closeCardMenu();
+  });
+  $('card-menu-delete').addEventListener('click', () => {
+    if (cardMenuTarget) deleteSession(cardMenuTarget);
+    closeCardMenu();
+  });
+  $('card-menu-cancel').addEventListener('click', closeCardMenu);
+
+  // Drawer
+  $('btn-menu').addEventListener('click', openDrawer);
+
+  // Auto approve toggle
+  $('btn-auto-approve').addEventListener('click', () => {
+    state.autoApprove = !state.autoApprove;
+    $('btn-auto-approve').classList.toggle('active', state.autoApprove);
+  });
+
+  // Permission dismiss
+  $('btn-perm-dismiss').addEventListener('click', hidePermissionBanner);
+
+  // Window sheet
+  $('breadcrumb-window').addEventListener('click', openWindowSheet);
+
+  // Window menu
+  $('window-menu-cancel').addEventListener('click', closeWindowMenu);
+  $('window-menu-rename').addEventListener('click', () => {
+    if (windowMenuTarget) renameWindow(windowMenuTarget.session, windowMenuTarget.index);
+    closeWindowMenu();
+  });
+  $('window-menu-add').addEventListener('click', () => {
+    closeWindowMenu();
+    createWindow();
+  });
+  $('window-menu-close').addEventListener('click', () => {
+    if (windowMenuTarget) deleteWindow(windowMenuTarget.session, windowMenuTarget.index);
+    closeWindowMenu();
+  });
+
+  // Top Tabs
+  const wrap = $('top-tabs');
+  if (wrap) {
+    wrap.querySelectorAll('.top-tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => setTopTab(btn.dataset.tab));
+    });
+    renderTopTabs();
+  }
+
+  // Android hardware back
+  window.addEventListener('popstate', () => {
+    if ($('drawer').classList.contains('open')) {
+      closeDrawer();
+      history.pushState(null, '');
+      return;
+    }
+    if ($('view-detail').classList.contains('active')) {
+      showSessionList();
+      history.pushState(null, '');
+    }
+  });
+  history.pushState(null, '');
+}
