@@ -182,13 +182,14 @@ type herdrReadResult struct {
 	} `json:"read"`
 }
 
-// herdrPaneGetResult はpane.getの結果のうちscroll.viewport_rowsだけを見る(実機確認済み:
+// herdrPaneGetResult はpane.getの結果のうちscrollの必要フィールドだけを見る(実機確認済み:
 // pane_id指定でそのpane1件分のscroll{offset_from_bottom, max_offset_from_bottom, viewport_rows}
 // を返す)。
 type herdrPaneGetResult struct {
 	Pane struct {
 		Scroll struct {
-			ViewportRows int `json:"viewport_rows"`
+			ViewportRows        int `json:"viewport_rows"`
+			MaxOffsetFromBottom int `json:"max_offset_from_bottom"`
 		} `json:"scroll"`
 	} `json:"pane"`
 }
@@ -599,8 +600,27 @@ func herdrKeyTranslation(key string) (special string, raw string, ok bool) {
 // SendKeys はtmux形式のキー名は変換して送り、それ以外はリテラルテキストとしてpane.send_textへ
 // そのまま渡す。herdrのsend_textは埋め込み/末尾の"\n"をEnterとして扱う(実機確認済み)ため、
 // tmux版sendKeys(tmux.go)のような改行分離処理は不要。
+// paneHasScrollback はpaneがherdr側スクロールバックを持つかを返す(通常シェル=true)。
+// alternate screenのフルスクリーンTUI(claude/vim等)はmax_offset_from_bottom=0になる
+// (実機確認済み)。取得失敗時はfalse(=送信を通す)に倒し、TUI操作を阻害しない。
+func (b *HerdrBackend) paneHasScrollback(target string) bool {
+	var res herdrPaneGetResult
+	if err := b.client.call("pane.get", map[string]string{"pane_id": target}, &res); err != nil {
+		return false
+	}
+	return res.Pane.Scroll.MaxOffsetFromBottom > 0
+}
+
 func (b *HerdrBackend) SendKeys(target, keys string) error {
 	if keys == "" {
+		return nil
+	}
+	// PgUp/PgDnはリモートスクロールボタン専用で、alternate screenのTUIに画面を
+	// 遡らせるためのもの。通常シェルpaneではキーを解釈するアプリがおらず
+	// "^[[5~"の生シーケンスが入力バッファに打ち込まれてしまうだけなので送らない。
+	// (通常paneの履歴はスクロールバック込みでCapturePane/pollerが取得済みで、
+	// クライアント側スクロールで閲覧できるため機能的な損失は無い)
+	if (keys == "PPage" || keys == "NPage") && b.paneHasScrollback(target) {
 		return nil
 	}
 	if special, raw, ok := herdrKeyTranslation(keys); ok {
