@@ -179,6 +179,26 @@ function initInputBar() {
     if (state.currentPane) sendKeys(state.currentPane, 'Enter');
   });
 
+  // Paste button (クリップボードの内容を末尾に追記。フォーカスは移さずキーボード表示を避ける)
+  const pasteBtn = $('btn-paste');
+  pasteBtn.addEventListener('click', async () => {
+    const showFeedback = (text) => {
+      const original = pasteBtn.innerHTML;
+      pasteBtn.innerHTML = text;
+      setTimeout(() => { pasteBtn.innerHTML = original; }, 1500);
+    };
+    if (!navigator.clipboard || !navigator.clipboard.readText) {
+      showFeedback('不可');
+      return;
+    }
+    try {
+      const text = await navigator.clipboard.readText();
+      $('cmd-input').value += text;
+    } catch (e) {
+      showFeedback('失敗');
+    }
+  });
+
   // Keys sheet
   $('btn-keys-more').addEventListener('click', keysSheet.show);
   for (const btn of $('keys-sheet-overlay').querySelectorAll('.sheet-category')) {

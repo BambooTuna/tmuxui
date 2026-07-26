@@ -396,8 +396,7 @@ async function filerCreateMd() {
       alert(msg);
     }
   });
-
-  form.querySelector('#filer-create-name').focus();
+  // 自動フォーカスしない(iOSでキーボード表示+ズームされて入力しにくくなるため)
 }
 
 // ===== File Upload =====
@@ -487,8 +486,6 @@ function filerXhrUpload(file, rootPath, onProgress) {
   });
 }
 
-let filerUploadToastTimer = null;
-
 function getFilerUploadToast() {
   let el = document.querySelector('.filer-upload-toast');
   if (el) return el;
@@ -505,13 +502,6 @@ function getFilerUploadToast() {
 
   document.body.appendChild(el);
   return el;
-}
-
-function scheduleFilerUploadToastDismiss(el) {
-  if (filerUploadToastTimer) clearTimeout(filerUploadToastTimer);
-  filerUploadToastTimer = setTimeout(() => {
-    if (el.parentNode) el.remove();
-  }, 15000);
 }
 
 function createFilerUploadRow(filename) {
@@ -598,7 +588,7 @@ async function uploadFiles(fileList) {
     }
   }
 
-  scheduleFilerUploadToastDismiss(toast);
+  // トーストは×ボタンを押すまで表示し続ける(自動消滅はしない)
   // ファイラーのリストを更新
   loadFilerDir(fs.currentPath || fs.rootPath);
 }

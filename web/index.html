@@ -11,7 +11,7 @@
   <meta name="theme-color" content="#1a1a2e">
   <link rel="icon" type="image/png" href="icon-192.png">
   <link rel="stylesheet" href="vendor/xterm/xterm.css">
-  <link rel="stylesheet" href="style.css?v=32">
+  <link rel="stylesheet" href="style.css?v=33">
 </head>
 <body>
 
@@ -88,6 +88,7 @@
                  autocomplete="off" autocorrect="off"
                  autocapitalize="off" spellcheck="false" enterkeyhint="enter"
                  aria-describedby="cmd-input-hint"></textarea>
+          <button type="button" id="btn-paste" class="btn-paste" aria-label="ペースト">&#128203;</button>
         </div>
         <span id="cmd-input-hint" class="sr-only">送信ボタンで送信</span>
         <!-- action-bar: 1階層目のボタン構成は変更しない。追加キーは keys-sheet 内に配置すること -->
@@ -343,9 +344,9 @@
 
   <!-- features -->
   <script src="features/sessions.js?v=1"></script>
-  <script src="features/input-bar.js?v=1"></script>
+  <script src="features/input-bar.js?v=2"></script>
   <script src="features/settings.js?v=1"></script>
-  <script src="features/filer.js?v=1"></script>
+  <script src="features/filer.js?v=2"></script>
   <script src="features/snippet.js?v=1"></script>
 
   <!-- bootstrap -->
