@@ -43,6 +43,51 @@ function termInit() {
   }).observe(document.documentElement, { attributes: true, attributeFilter: ['data-theme'] });
 
   termSetupResizeWatchers(container.parentElement || container);
+  termSetupTouchScroll(container);
+}
+
+// xterm.js 6.0はビューポートをネイティブスクロール要素として公開しない(カスタム
+// スクロールバー実装で.xterm-viewportのscrollHeight==clientHeightになる。実測済み)ため、
+// モバイルのスワイプではスクロールバックを遡れない。縦方向のタッチジェスチャを
+// terminal.scrollLines()へ変換してローカルスクロールを実現する。横方向のジェスチャは
+// #pane-contentのoverflow-x:autoによるネイティブ横パンに委ねるため一切触らない。
+// スクロールバックが空のTUI(claude/vim等のalternate screen)ではscrollLinesが実質no-opで
+// 副作用は無い(TUIを遡る手段は従来通りリモートスクロールボタン)。
+function termSetupTouchScroll(container) {
+  let startX = 0, startY = 0, lastY = 0;
+  let axis = null; // null=未判定 / 'v'=縦(ローカルスクロール) / 'h'=横(ネイティブパンに委譲)
+  let acc = 0;
+  container.addEventListener('touchstart', e => {
+    if (e.touches.length !== 1) return;
+    startX = e.touches[0].clientX;
+    startY = lastY = e.touches[0].clientY;
+    axis = null;
+    acc = 0;
+  }, { passive: true });
+  container.addEventListener('touchmove', e => {
+    if (!terminal || e.touches.length !== 1) return;
+    const x = e.touches[0].clientX;
+    const y = e.touches[0].clientY;
+    if (axis === null) {
+      const dx = Math.abs(x - startX);
+      const dy = Math.abs(y - startY);
+      if (dx < 6 && dy < 6) return; // 誤爆防止のデッドゾーン
+      axis = dy >= dx ? 'v' : 'h';
+    }
+    if (axis !== 'v') return;
+    e.preventDefault(); // 縦はローカルスクロールに専念(rubber band等のネイティブ挙動を抑止)
+    acc += lastY - y; // 指を上へ(+)=下へスクロール、指を下へ(-)=過去へ遡る
+    lastY = y;
+    const screen = terminal.element && terminal.element.querySelector('.xterm-screen');
+    const cell = screen && terminal.rows > 0 ? screen.clientHeight / terminal.rows : 0;
+    if (cell > 0) {
+      const lines = Math.trunc(acc / cell);
+      if (lines !== 0) {
+        terminal.scrollLines(lines);
+        acc -= lines * cell;
+      }
+    }
+  }, { passive: false });
 }
 
 // ペインの実サイズが正: ここではterminal.resizeせず、提案サイズが変わった時だけ
