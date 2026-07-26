@@ -1,6 +1,6 @@
 'use strict';
 
-// xterm.js表示レイヤー。xtermEnabled()がfalseの間は一切マウントしない(ロールバック用)。
+// xterm.js表示レイヤー(唯一の描画エンジン)。
 // vendor UMDビルドのグローバル名: xterm.js本体は window.Terminal (フラットexport)、
 // addon-fitは window.FitAddon.FitAddon (factoryが{FitAddon:class}を返す実装のため入れ子)。
 // パレットは render/palette.js の定義を参照する(classic/xterm共通)。
@@ -152,9 +152,24 @@ function termBufferType() {
   return terminal ? terminal.buffer.active.type : 'normal';
 }
 
-// transport/ws.js からの通知。xtermモード時のみ描画する(classic時は無視)。
+// バッファ全行(スクロールバック込み)をプレーンテキスト化して返す。
+// features/text-view.jsのコピー用オーバーレイが使う。trimRight=trueで各行の
+// 右端の空白セルを除去(translateToStringの第1引数)。末尾の連続空行は落とす。
+function termGetBufferText() {
+  if (!terminal) return '';
+  const buf = terminal.buffer.active;
+  const lines = [];
+  for (let i = 0; i < buf.length; i++) {
+    const line = buf.getLine(i);
+    lines.push(line ? line.translateToString(true) : '');
+  }
+  while (lines.length > 0 && lines[lines.length - 1] === '') lines.pop();
+  return lines.join('\n');
+}
+
+// transport/ws.js からの通知
 bus.on('ws:pane_snapshot', e => {
-  if (xtermEnabled() && e.detail.target === state.currentPane) {
+  if (e.detail.target === state.currentPane) {
     // ペインの実サイズが正: 書き込む前にterminalをそのサイズへ追従させる
     if (e.detail.cols > 0 && e.detail.rows > 0) termSetSize(e.detail.cols, e.detail.rows);
     termWriteSnapshot(base64ToBytes(e.detail.data));
@@ -163,7 +178,7 @@ bus.on('ws:pane_snapshot', e => {
 });
 
 bus.on('ws:pane_output', e => {
-  if (xtermEnabled() && e.detail.target === state.currentPane) {
+  if (e.detail.target === state.currentPane) {
     termWrite(base64ToBytes(e.detail.data));
   }
 });

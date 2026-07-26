@@ -194,8 +194,13 @@ type herdrPaneGetResult struct {
 	} `json:"pane"`
 }
 
-// herdrTargetPattern はherdrのpane_id形式("w1:p2"など、実機確認済み)にマッチする。
-var herdrTargetPattern = regexp.MustCompile(`^[A-Za-z0-9]+:p[A-Za-z0-9]+$`)
+// herdrTargetPattern はherdrのネイティブ識別子形式にマッチする: workspace_id単体("w8"、
+// workspace単位操作のNewWindow/RenameSession/KillSession等が渡す)、tab_id("w8:t3")、
+// pane_id("w8:p1")のいずれか。かつてpane_id形式しか許可していなかったため、workspace単位の
+// 操作がBackendRegistry.Resolve経由で軒並み"invalid name"になっていたバグの修正(実機確認済み)。
+// handleKillWindow/handleRenameWindow(handlers.go)がtab.number相当の素の数値インデックス
+// (例:"2")を渡すケースもworkspace_id単体の形(コロン無し)として許可される。
+var herdrTargetPattern = regexp.MustCompile(`^[A-Za-z0-9]+(:[tp][A-Za-z0-9]+)?$`)
 
 // herdrPoller はSubscribe向けのターゲット単位ポーリング状態。herdrにはtmux control-modeの
 // %outputに相当する「生の差分出力」を押し出すイベントが無い(events.subscribeのpane系イベントは
@@ -673,6 +678,15 @@ func (b *HerdrBackend) NewWindow(sessionName, windowName string) error {
 		params["label"] = windowName
 	}
 	return b.client.call("tab.create", params, nil)
+}
+
+// NewWorktree はworkspace_id配下のリポジトリにbranchという名前のworktreeを新規作成する。
+// worktree.createは新しいworkspaceを生やすAPIで、base/path/labelはユーザー指定を持たないため
+// herdr側のデフォルトに任せる(focusはfalse固定でUIフォーカスを奪わない)。
+func (b *HerdrBackend) NewWorktree(sessionName, branch string) error {
+	return b.client.call("worktree.create", map[string]interface{}{
+		"workspace_id": sessionName, "branch": branch, "focus": false,
+	}, nil)
 }
 
 // resolveTabID はhandler側が組み立てる"<workspace_id>:<windowIndex>"形式のtarget

@@ -86,6 +86,11 @@ func (b *TmuxControlBackend) SplitPane(target string, horizontal bool) error {
 	return splitPane(target, horizontal)
 }
 
+// NewWorktree: tmuxバックエンドはworktreeという概念を持たない(herdr固有の機能)ため未対応。
+func (b *TmuxControlBackend) NewWorktree(sessionName, branch string) error {
+	return backend.ErrUnsupported
+}
+
 func (b *TmuxControlBackend) ValidTarget(s string) bool {
 	return isValidTarget(s)
 }

@@ -478,9 +478,16 @@ func TestHerdrBackendValidTarget(t *testing.T) {
 		{"w1:p1", true},
 		{"wY:p2", true},
 		{"w3:pJ", true},
+		{"w1:t2", true},
+		// workspace_id単体・素の数値インデックス(NewWindow/RenameSession/KillSession等の
+		// workspace単位操作やhandleKillWindow/handleRenameWindowが渡す"2"のようなtab.number)
+		// も許可する(旧実装ではpane_id形式しか許可されず、これらが軒並みHTTP 400になっていたバグの修正)。
+		{"w1", true},
+		{"2", true},
 		{"", false},
-		{"w1", false},
 		{"w1:0.0", false},
+		{"w1:x2", false},
+		{"w1:", false},
 	}
 	for _, c := range cases {
 		if got := b.ValidTarget(c.target); got != c.want {
@@ -632,6 +639,24 @@ func TestHerdrBackendNewWindow(t *testing.T) {
 		t.Fatalf("NewWindow: %v", err)
 	}
 	if got["workspace_id"] != "w1" || got["label"] != "mytab" || got["focus"] != false {
+		t.Errorf("params = %+v, unexpected", got)
+	}
+}
+
+func TestHerdrBackendNewWorktree(t *testing.T) {
+	s := newFakeHerdrServer(t)
+	var got map[string]interface{}
+	s.on("worktree.create", func(params json.RawMessage) (interface{}, string, string) {
+		json.Unmarshal(params, &got)
+		return map[string]interface{}{"workspace": map[string]interface{}{"workspace_id": "wNew"}}, "", ""
+	})
+	b := New(s.socketPath())
+	defer b.Close()
+
+	if err := b.NewWorktree("w1", "feature/foo"); err != nil {
+		t.Fatalf("NewWorktree: %v", err)
+	}
+	if got["workspace_id"] != "w1" || got["branch"] != "feature/foo" || got["focus"] != false {
 		t.Errorf("params = %+v, unexpected", got)
 	}
 }

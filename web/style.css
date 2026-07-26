@@ -706,36 +706,6 @@ button, input, textarea {
   user-select: text;
 }
 
-/* 従来(classic)モード: xterm.js側と同じbg/fg/行送りに寄せる(render/palette.js PALETTE_BG/FGと同値)。
-   .has-classicはrender/classic.jsのrenderPaneContentで明示付与する(旧Safariの:has()互換考慮)。 */
-#pane-content.has-classic {
-  background: #1a1a1a;
-  color: #e0e0e0;
-  line-height: 1.2;
-}
-[data-theme="pastel"] #pane-content.has-classic {
-  background: #faf6f0;
-  color: #4a3f35;
-}
-
-/* 短い履歴でpane-contentが余っても内容を下寄せしてターミナルらしく見せる。
-   min-height:100%で親pane-contentの高さを埋め、justify-content:flex-endで内容を底辺へ。
-   長い履歴では内容自身が親を超えるため、pane-contentのoverflow-y:autoでスクロールする。 */
-#pane-content .pane-content-inner {
-  min-height: 100%;
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-end;
-  /* 横はみ出し時にpane-contentのoverflow-x:autoでパンできるよう内容幅に追従 */
-  width: max-content;
-  min-width: 100%;
-}
-/* flex直下に生テキスト/spanを置くと個々が別flex itemになり行が分断されるため、
-   renderPaneContentは必ずこの単一ラッパで内容を包む(flex item は常に1個) */
-#pane-content .pane-content-text {
-  white-space: pre;
-}
-
 /* xterm.js使用時: FitAddonは#pane-contentの高さ/幅から.xterm自身のpaddingだけを差し引いて
    cols/rowsを計算するため、paddingはコンテナではなく.xterm側に持たせる */
 #pane-content:has(.xterm) {
@@ -792,6 +762,61 @@ button, input, textarea {
 .remote-scroll-btn.remote-scroll-btn-active {
   background: var(--accent);
   color: var(--bg);
+}
+
+/* ===== テキストビュー(コピー用オーバーレイ) =====
+   xterm.jsのタッチ選択は実用にならないため、コピーはこの全画面プレーンテキスト
+   ビューで行う(features/text-view.js)。素のDOMテキストなのでOSの長押し選択が効く。 */
+.text-view-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-overlay);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+.text-view-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 16px;
+  padding-top: calc(12px + var(--safe-top));
+  border-bottom: 1px solid var(--separator);
+  background: var(--material-thin-bg);
+  flex-shrink: 0;
+}
+.text-view-title {
+  flex: 1;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.text-view-copy-btn {
+  padding: 7px 14px;
+  background: var(--accent);
+  border: none;
+  border-radius: var(--radius-sm);
+  color: #fff;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.text-view-copy-btn:active { opacity: 0.8; }
+.text-view-body {
+  flex: 1;
+  overflow: auto;
+  padding: 12px;
+  padding-left:   calc(12px + var(--safe-left));
+  padding-right:  calc(12px + var(--safe-right));
+  padding-bottom: calc(12px + var(--safe-bottom));
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.4;
+  white-space: pre;
+  color: var(--text);
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 /* ===== Input Area ===== */
@@ -1878,7 +1903,8 @@ button, input, textarea {
   background: var(--bg2);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 12px 14px;
+  /* 右は×ボタン(32px)と被らないよう余白を広く取る */
+  padding: 12px 44px 12px 14px;
   z-index: var(--z-upload-toast);
   box-shadow: 0 4px 20px rgba(0,0,0,0.3);
 }

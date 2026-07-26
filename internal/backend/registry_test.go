@@ -34,6 +34,7 @@ func (f *fakeBackend) KillWindow(string) error                  { return nil }
 func (f *fakeBackend) RenameWindow(string, string) error        { return nil }
 func (f *fakeBackend) KillPane(string) error                    { return nil }
 func (f *fakeBackend) SplitPane(string, bool) error             { return nil }
+func (f *fakeBackend) NewWorktree(string, string) error         { return nil }
 func (f *fakeBackend) OnTopologyChange(func())                  {}
 func (f *fakeBackend) ValidTarget(s string) bool {
 	if f.validTargetFn != nil {

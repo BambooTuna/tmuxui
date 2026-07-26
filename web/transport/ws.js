@@ -1,7 +1,7 @@
 'use strict';
 
 // WebSocket接続・送受信のみを担う搬送層。描画関数は直接呼ばず、CustomEvent
-// ('ws:pane_content'/'ws:pane_snapshot'/'ws:pane_output'/'ws:pane_list'/'ws:permission'/
+// ('ws:pane_snapshot'/'ws:pane_output'/'ws:pane_list'/'ws:permission'/
 // 'ws:update_status') を dispatch して features/render 側に通知する。
 
 function connectWS() {
@@ -54,28 +54,18 @@ function wsSend(msg) {
   return false;
 }
 
-// 設定画面の「描画エンジン」で切替可能。'0'(従来)を明示セットした場合のみ旧pane_content描画
-function xtermEnabled() {
-  return localStorage.getItem('tmuxuiXterm') !== '0';
-}
-
 function base64ToBytes(b64) {
   return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
 }
 
 function getSubscribeSize() {
   // 古いindex.htmlキャッシュ等でterm.jsが未ロードでもsubscribeを止めない
-  if (xtermEnabled() && typeof termFit === 'function') return termFit();
-  return calcTermSize();
+  if (typeof termFit === 'function') return termFit();
+  return null;
 }
 
-// classicモードではpane_snapshot/pane_output(差分ストリーム)を受け取っても捨てるだけで、
-// 大量のWSメッセージがメインスレッドを詰まらせる。サーバー側でstartSubscriptionをスキップ
-// させるためのモードフラグ。
 function subscribePayload(target, size) {
-  const base = { type: 'subscribe', target, ...(size || {}) };
-  if (!xtermEnabled()) base.mode = 'classic';
-  return base;
+  return { type: 'subscribe', target, ...(size || {}) };
 }
 
 // ペインの実サイズが正: pane_listで報告されたサイズとterminalの現在サイズがずれていたら
@@ -83,7 +73,7 @@ function subscribePayload(target, size) {
 // subscribeを再送してsnapshotから取り直す。サイズが一致すればそこで収束して止まる。
 let lastSizeResyncAt = 0;
 function checkPaneSizeSync() {
-  if (!xtermEnabled() || !state.currentPane || typeof termGetSize !== 'function') return;
+  if (!state.currentPane || typeof termGetSize !== 'function') return;
   const pane = findPane(state.currentSession, state.currentWindow, state.currentPane);
   const m = pane && /^(\d+)x(\d+)$/.exec(pane.size);
   if (!m) return;
@@ -100,10 +90,6 @@ function checkPaneSizeSync() {
 
 function handleWSMessage(msg) {
   switch (msg.type) {
-    case 'pane_content':
-      bus.emit('ws:pane_content', { target: msg.target, content: msg.content });
-      break;
-
     case 'pane_snapshot':
       bus.emit('ws:pane_snapshot', { target: msg.target, cols: msg.cols, rows: msg.rows, data: msg.data });
       break;
@@ -139,42 +125,6 @@ function setWsStatus(status) {
   state.wsStatus = status;
   $('ws-dot').className = `ws-dot ${status}`;
 }
-
-function calcTermSize() {
-  const el = $('pane-content');
-  if (!el) return null;
-  const probe = document.createElement('span');
-  probe.style.cssText = 'position:absolute;visibility:hidden;font-family:' +
-    getComputedStyle(el).fontFamily + ';font-size:' +
-    getComputedStyle(el).fontSize + ';white-space:pre';
-  probe.textContent = 'M'.repeat(10);
-  document.body.appendChild(probe);
-  const charW = probe.offsetWidth / 10;
-  const lineH = parseFloat(getComputedStyle(el).lineHeight) || parseFloat(getComputedStyle(el).fontSize) * 1.4;
-  document.body.removeChild(probe);
-
-  const style = getComputedStyle(el);
-  const padL = parseFloat(style.paddingLeft);
-  const padR = parseFloat(style.paddingRight);
-  const padT = parseFloat(style.paddingTop);
-  const padB = parseFloat(style.paddingBottom);
-
-  const cols = Math.floor((el.clientWidth - padL - padR) / charW);
-  const rows = Math.floor((el.clientHeight - padT - padB) / lineH);
-  return { cols: Math.max(cols, 20), rows: Math.max(rows, 5) };
-}
-
-let resizeTimer = null;
-window.addEventListener('resize', () => {
-  if (xtermEnabled()) return; // xterm有効時はterm.js側のResizeObserver/visualViewportが処理する
-  clearTimeout(resizeTimer);
-  resizeTimer = setTimeout(() => {
-    if (state.currentPane) {
-      const size = calcTermSize();
-      if (size) wsSend({ type: 'resize', target: state.currentPane, ...size });
-    }
-  }, 300);
-});
 
 function sendKeys(target, keys) {
   if (!wsSend({ type: 'send_keys', target, keys })) {

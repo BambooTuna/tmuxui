@@ -54,6 +54,42 @@ async function createWindow() {
   loadSessions();
 }
 
+// セッション一覧のカードメニューから呼ぶ版。state.currentSession(詳細画面のコンテキスト)に
+// 依存せず、指定されたsessionName直下にタブを作成する点がcreateWindow()と異なる。
+async function addTabToSession(sessionName) {
+  const name = await showModal({ message: 'タブ名（任意）', input: true, okLabel: '作成' });
+  if (name === null) return;
+  await apiFetch(`/api/sessions/${encodeURIComponent(sessionFullId(sessionName))}/windows`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: typeof name === 'string' ? name : '' }),
+  });
+  loadSessions();
+}
+
+// herdrセッション配下にworktreeを新規作成する(新しいworkspaceとして生える)。
+// 作成後は2秒周期のトポロジーポーリングで自然に一覧へ反映されるが、体感を早めるため
+// 一度loadSessions()も呼んでおく。
+async function createWorktree(sessionName) {
+  const result = await showModal({ message: 'ブランチ名', input: true, okLabel: '作成' });
+  if (result === null) return;
+  const branch = typeof result === 'string' ? result.trim() : '';
+  if (!branch) {
+    alert('ブランチ名を入力してください');
+    return;
+  }
+  try {
+    await apiFetch(`/api/sessions/${encodeURIComponent(sessionFullId(sessionName))}/worktrees`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ branch }),
+    });
+    loadSessions();
+  } catch (e) {
+    alert(`worktreeの作成に失敗しました: ${e.message}`);
+  }
+}
+
 async function deleteWindow(sessionName, windowIndex) {
   const ok = await showModal({ message: 'このWindowを閉じますか？', okLabel: '閉じる', okDanger: true });
   if (!ok) return;
@@ -119,6 +155,12 @@ function openCardMenu(sessionName) {
   cardMenuTarget = sessionName;
   const pinBtn = $('card-menu-pin');
   if (pinBtn) pinBtn.textContent = isPinned(sessionName) ? 'ピン解除' : 'ピン留め';
+  // 「タブ追加」「worktreeを生やす」はherdrセッション限定(tmuxセッションには無い概念のため)。
+  const isHerdr = findSession(sessionName)?.backend === 'herdr';
+  const addTabBtn = $('card-menu-add-tab');
+  if (addTabBtn) addTabBtn.hidden = !isHerdr;
+  const addWorktreeBtn = $('card-menu-add-worktree');
+  if (addWorktreeBtn) addWorktreeBtn.hidden = !isHerdr;
   cardMenuOverlay.show();
 }
 
@@ -166,15 +208,6 @@ function autoSelectTopTab() {
   }
 }
 
-async function loadPaneContent(target) {
-  try {
-    const data = await apiFetch(`/api/panes/${encodeURIComponent(target)}/content`);
-    renderPaneContent(data.content || '');
-  } catch (e) {
-    renderPaneContent(`(取得失敗: ${e.message})`);
-  }
-}
-
 // ===== Views =====
 function showSessionList() {
   if (state.currentPane) {
@@ -205,11 +238,7 @@ function showWindowDetail(sessionName, windowIndex) {
     switchPane(win.panes[0].target);
   } else {
     renderPaneTabs();
-    if (xtermEnabled()) {
-      termReset();
-    } else {
-      $('pane-content').textContent = 'ペインがありません';
-    }
+    termReset();
   }
 }
 
@@ -237,18 +266,10 @@ function switchPane(target) {
   state.currentPane = target;
   updateActiveTab();
 
-  if (xtermEnabled()) {
-    termReset();
-  } else {
-    $('pane-content').textContent = '読み込み中...';
-  }
+  termReset();
 
   const size = getSubscribeSize();
   wsSend(subscribePayload(target, size));
-
-  if (!xtermEnabled()) {
-    loadPaneContent(target);
-  }
 }
 
 
@@ -711,7 +732,6 @@ bus.on('ws:pane_list', e => {
 
 bus.on('ws:permission', e => showPermissionBanner(e.detail));
 
-bus.on('render:pane-content-applied', stopRefreshing);
 bus.on('render:pane-snapshot-applied', stopRefreshing);
 
 // ===== 初期化 =====
@@ -723,16 +743,9 @@ function initSessions() {
   $('btn-refresh').addEventListener('click', () => {
     if (!state.currentPane || state.refreshing) return;
     startRefreshing();
-    if (xtermEnabled()) {
-      // subscribeを再送するとバックエンド側がフルリシンク(snapshot再送)してくれる
-      const size = getSubscribeSize();
-      wsSend(subscribePayload(state.currentPane, size));
-    } else {
-      wsSend({ type: 'refresh', target: state.currentPane });
-      if (!state.ws || state.ws.readyState !== WebSocket.OPEN) {
-        loadPaneContent(state.currentPane);
-      }
-    }
+    // subscribeを再送するとバックエンド側がフルリシンク(snapshot再送)してくれる
+    const size = getSubscribeSize();
+    wsSend(subscribePayload(state.currentPane, size));
     setTimeout(stopRefreshing, 5000);
   });
 
@@ -746,6 +759,14 @@ function initSessions() {
   });
   $('card-menu-rename').addEventListener('click', () => {
     if (cardMenuTarget) renameSession(cardMenuTarget);
+    closeCardMenu();
+  });
+  $('card-menu-add-tab').addEventListener('click', () => {
+    if (cardMenuTarget) addTabToSession(cardMenuTarget);
+    closeCardMenu();
+  });
+  $('card-menu-add-worktree').addEventListener('click', () => {
+    if (cardMenuTarget) createWorktree(cardMenuTarget);
     closeCardMenu();
   });
   $('card-menu-delete').addEventListener('click', () => {

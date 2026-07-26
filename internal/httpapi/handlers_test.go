@@ -50,6 +50,11 @@ type fakeBackend struct {
 		target     string
 		horizontal bool
 	}
+	newWorktreeErr   error
+	newWorktreeCalls []struct {
+		sessionName string
+		branch      string
+	}
 }
 
 var _ backend.PaneBackend = (*fakeBackend)(nil)
@@ -91,6 +96,13 @@ func (f *fakeBackend) SplitPane(target string, horizontal bool) error {
 		horizontal bool
 	}{target, horizontal})
 	return f.splitErr
+}
+func (f *fakeBackend) NewWorktree(sessionName, branch string) error {
+	f.newWorktreeCalls = append(f.newWorktreeCalls, struct {
+		sessionName string
+		branch      string
+	}{sessionName, branch})
+	return f.newWorktreeErr
 }
 func (f *fakeBackend) OnTopologyChange(func())               {}
 func (f *fakeBackend) ValidTarget(s string) bool             { return s != "" }
@@ -247,6 +259,50 @@ func TestHandleSplitPaneMalformedBodyIsBadRequest(t *testing.T) {
 	}
 	if len(be.splitCalls) != 0 {
 		t.Errorf("SplitPane should not be called when the body is malformed, got calls: %+v", be.splitCalls)
+	}
+}
+
+// --- handleCreateWorktree ---
+
+func TestHandleCreateWorktreeSuccess(t *testing.T) {
+	be := &fakeBackend{}
+	s := newTestServer(t, be)
+
+	w := httptest.NewRecorder()
+	s.handleCreateWorktree(w, newReq(t, "POST", "/api/sessions/x/worktrees", `{"branch":"feature/foo"}`, map[string]string{"name": "tmux:main"}))
+
+	if w.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204, body=%s", w.Code, w.Body.String())
+	}
+	if len(be.newWorktreeCalls) != 1 || be.newWorktreeCalls[0].sessionName != "main" || be.newWorktreeCalls[0].branch != "feature/foo" {
+		t.Errorf("newWorktreeCalls = %+v, want one call with sessionName=main branch=feature/foo", be.newWorktreeCalls)
+	}
+}
+
+func TestHandleCreateWorktreeEmptyBranchIsBadRequest(t *testing.T) {
+	be := &fakeBackend{}
+	s := newTestServer(t, be)
+
+	w := httptest.NewRecorder()
+	s.handleCreateWorktree(w, newReq(t, "POST", "/api/sessions/x/worktrees", `{"branch":""}`, map[string]string{"name": "tmux:main"}))
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400, body=%s", w.Code, w.Body.String())
+	}
+	if len(be.newWorktreeCalls) != 0 {
+		t.Errorf("NewWorktree should not be called with empty branch, got calls: %+v", be.newWorktreeCalls)
+	}
+}
+
+func TestHandleCreateWorktreeBackendError(t *testing.T) {
+	be := &fakeBackend{newWorktreeErr: errors.New("worktree.create failed")}
+	s := newTestServer(t, be)
+
+	w := httptest.NewRecorder()
+	s.handleCreateWorktree(w, newReq(t, "POST", "/api/sessions/x/worktrees", `{"branch":"foo"}`, map[string]string{"name": "tmux:main"}))
+
+	if w.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500, body=%s", w.Code, w.Body.String())
 	}
 }
 

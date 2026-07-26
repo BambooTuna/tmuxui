@@ -32,6 +32,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initFiler();
   initSnippetSheet();
   initRemoteScrollButtons();
+  initTextView();
 
   connectWS();
   applyStoredPreferences();

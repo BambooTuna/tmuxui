@@ -46,6 +46,11 @@ type PaneBackend interface {
 	KillPane(target string) error
 	SplitPane(target string, horizontal bool) error
 
+	// NewWorktree はsessionName(ネイティブ形式)に対応するリポジトリ配下にbranchという名前の
+	// worktreeを新規作成する。worktreeという概念自体をサポートしないバックエンド(tmux等)は
+	// ErrUnsupportedを返す。
+	NewWorktree(sessionName, branch string) error
+
 	// OnTopologyChange はセッション/ウィンドウ/ペイン構成が変化した際に呼ばれるコールバックを登録する。
 	OnTopologyChange(fn func())
 

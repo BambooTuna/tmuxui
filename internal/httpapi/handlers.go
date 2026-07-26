@@ -153,6 +153,22 @@ func (s *Server) handleCreateWindow(w http.ResponseWriter, r *http.Request) {
 	writeResult(w, b.NewWindow(native, body.Name))
 }
 
+func (s *Server) handleCreateWorktree(w http.ResponseWriter, r *http.Request) {
+	name, _ := url.PathUnescape(r.PathValue("name"))
+	b, native, ok := s.resolve(w, name, "invalid name")
+	if !ok {
+		return
+	}
+	var body struct {
+		Branch string `json:"branch"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.Branch == "" {
+		http.Error(w, "invalid branch", http.StatusBadRequest)
+		return
+	}
+	writeResult(w, b.NewWorktree(native, body.Branch))
+}
+
 func (s *Server) handleKillWindow(w http.ResponseWriter, r *http.Request) {
 	name, _ := url.PathUnescape(r.PathValue("name"))
 	index, _ := url.PathUnescape(r.PathValue("index"))

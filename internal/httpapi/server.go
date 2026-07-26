@@ -61,6 +61,7 @@ func New(cfg Config) http.Handler {
 	mux.HandleFunc("DELETE /api/sessions/{name}", s.withPaneNotify(s.handleKillSession))
 	mux.HandleFunc("POST /api/sessions/{name}/rename", s.withPaneNotify(s.handleRenameSession))
 	mux.HandleFunc("POST /api/sessions/{name}/windows", s.withPaneNotify(s.handleCreateWindow))
+	mux.HandleFunc("POST /api/sessions/{name}/worktrees", s.withPaneNotify(s.handleCreateWorktree))
 	mux.HandleFunc("DELETE /api/sessions/{name}/windows/{index}", s.withPaneNotify(s.handleKillWindow))
 	mux.HandleFunc("POST /api/sessions/{name}/windows/{index}/rename", s.withPaneNotify(s.handleRenameWindow))
 	mux.HandleFunc("GET /api/panes/{target}/content", s.handlePaneContent)

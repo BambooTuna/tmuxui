@@ -11,7 +11,7 @@
   <meta name="theme-color" content="#1a1a2e">
   <link rel="icon" type="image/png" href="icon-192.png">
   <link rel="stylesheet" href="vendor/xterm/xterm.css">
-  <link rel="stylesheet" href="style.css?v=34">
+  <link rel="stylesheet" href="style.css?v=35">
 </head>
 <body>
 
@@ -39,6 +39,7 @@
         <span id="breadcrumb-sep" class="breadcrumb-sep">›</span>
         <button id="breadcrumb-window" class="breadcrumb-window"></button>
       </span>
+      <button id="btn-text-view" class="btn-icon" aria-label="テキスト選択">&#9112;</button>
       <button id="btn-filer" class="btn-icon btn-filer" aria-label="ファイラー">&#8862;</button>
       <button id="btn-menu" class="btn-icon" aria-label="メニュー">&#9776;</button>
     </header>
@@ -119,16 +120,6 @@
           <div class="theme-switch">
             <button type="button" class="theme-switch-btn" data-theme-value="dark">ダーク</button>
             <button type="button" class="theme-switch-btn" data-theme-value="pastel">パステル</button>
-          </div>
-        </div>
-      </div>
-      <div class="settings-section">
-        <div class="settings-section-title">表示</div>
-        <div class="settings-row">
-          <span class="settings-row-label">描画エンジン</span>
-          <div class="theme-switch">
-            <button type="button" class="theme-switch-btn renderer-switch-btn" data-renderer-value="xterm">xterm</button>
-            <button type="button" class="theme-switch-btn renderer-switch-btn" data-renderer-value="classic">従来</button>
           </div>
         </div>
       </div>
@@ -328,6 +319,16 @@
     </div>
   </div>
 
+  <!-- ===== テキストビュー(コピー用オーバーレイ) ===== -->
+  <div id="text-view-overlay" hidden class="text-view-overlay">
+    <div class="text-view-toolbar">
+      <button type="button" id="text-view-close" class="btn-back" aria-label="閉じる">&#8592;</button>
+      <span class="text-view-title">テキスト選択</span>
+      <button type="button" id="text-view-copy-all" class="text-view-copy-btn">全文コピー</button>
+    </div>
+    <div id="text-view-body" class="text-view-body"></div>
+  </div>
+
   <script src="vendor/xterm/xterm.js"></script>
   <script src="vendor/xterm/addon-fit.js"></script>
 
@@ -338,20 +339,20 @@
 
   <!-- render -->
   <script src="render/palette.js?v=1"></script>
-  <script src="render/classic.js?v=3"></script>
-  <script src="render/xterm-view.js?v=2"></script>
+  <script src="render/xterm-view.js?v=3"></script>
 
   <!-- transport -->
-  <script src="transport/ws.js?v=1"></script>
+  <script src="transport/ws.js?v=2"></script>
 
   <!-- features -->
-  <script src="features/sessions.js?v=2"></script>
+  <script src="features/sessions.js?v=3"></script>
   <script src="features/input-bar.js?v=2"></script>
-  <script src="features/settings.js?v=1"></script>
+  <script src="features/settings.js?v=2"></script>
   <script src="features/filer.js?v=2"></script>
   <script src="features/snippet.js?v=1"></script>
+  <script src="features/text-view.js?v=1"></script>
 
   <!-- bootstrap -->
-  <script src="bootstrap.js?v=1"></script>
+  <script src="bootstrap.js?v=2"></script>
 </body>
 </html>
