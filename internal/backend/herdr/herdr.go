@@ -16,6 +16,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/mattn/go-runewidth"
+
 	"github.com/BambooTuna/tmuxui/internal/backend"
 )
 
@@ -223,6 +225,12 @@ type HerdrBackend struct {
 	pollers map[string]*herdrPoller
 	wg      sync.WaitGroup // runPoller/runTopologyPollerの終了待ち合わせ用(Close参照)
 
+	// sizeMu/colsCache/rowsCache は実ptyサイズのキャッシュ(paneSize参照)。
+	// mu(トポロジー/pollers管理用)とはロック粒度を分けている。
+	sizeMu    sync.Mutex
+	colsCache map[string]int // pane.read実測幅(observePaneSize)。cols相当の代替情報がherdrのAPIに無いため。
+	rowsCache map[string]int // pane.get.scroll.viewport_rows(実sttyのrowsと一致、実機確認済み)。
+
 	onTopologyChange func()
 	closed           chan struct{}
 	closeOnce        sync.Once
@@ -232,9 +240,11 @@ var _ backend.PaneBackend = (*HerdrBackend)(nil)
 
 func New(socketPath string) *HerdrBackend {
 	b := &HerdrBackend{
-		client:  newHerdrClient(socketPath),
-		pollers: map[string]*herdrPoller{},
-		closed:  make(chan struct{}),
+		client:    newHerdrClient(socketPath),
+		pollers:   map[string]*herdrPoller{},
+		colsCache: map[string]int{},
+		rowsCache: map[string]int{},
+		closed:    make(chan struct{}),
 	}
 	b.wg.Add(1)
 	go b.runTopologyPoller()
@@ -306,7 +316,18 @@ func (b *HerdrBackend) ListSessions() ([]backend.Session, error) {
 			wpanes := make([]backend.Pane, 0, len(panes))
 			for _, p := range panes {
 				size := ""
-				if r, ok := rects[p.PaneID]; ok {
+				// colsCache/rowsCacheが両方揃っているpaneは実ptyサイズを出す。まだ観測できて
+				// いないpaneは従来通りlayout rect(グリッド座標)由来のSizeにフォールバックする。
+				// これはpane_listのSizeとxterm.jsの実サイズが恒久的に食い違ってweb/transport/ws.js
+				// のcheckPaneSizeSyncが1秒ごとに再subscribeし続けるのを防ぐため(実サイズが
+				// 確定していればそこで一致し収束する)。
+				b.sizeMu.Lock()
+				cachedCols, colsOK := b.colsCache[p.PaneID]
+				cachedRows, rowsOK := b.rowsCache[p.PaneID]
+				b.sizeMu.Unlock()
+				if colsOK && rowsOK {
+					size = fmt.Sprintf("%dx%d", cachedCols, cachedRows)
+				} else if r, ok := rects[p.PaneID]; ok {
 					size = fmt.Sprintf("%dx%d", r.Width, r.Height)
 				}
 				path := p.ForegroundCwd
@@ -382,19 +403,102 @@ func (b *HerdrBackend) tabLayoutRects(panes []herdrPane) map[string]herdrRect {
 	return m
 }
 
+// ansiCSIRe/ansiOSCRe はpane.readが返すANSIテキストからエスケープシーケンスを取り除くための
+// パターン。実機確認済みの通りpane.readのANSIテキストはSGR(色)+CRLFのみでCUP等のカーソル
+// 移動シーケンスは含まれないが、念のためCSI/OSC全般を汎用的に除去する。
+var (
+	ansiCSIRe = regexp.MustCompile(`\x1b\[[0-9;:?]*[ -/]*[@-~]`)
+	ansiOSCRe = regexp.MustCompile(`\x1b\][^\x07\x1b]*(\x07|\x1b\\)`)
+)
+
+// stripAnsi はANSIエスケープシーケンス(CSI/OSC)と\rを取り除き、幅測定用の素のテキストにする。
+func stripAnsi(s string) string {
+	s = ansiOSCRe.ReplaceAllString(s, "")
+	s = ansiCSIRe.ReplaceAllString(s, "")
+	s = strings.ReplaceAll(s, "\r", "")
+	return s
+}
+
+// measureMaxWidth はANSIテキストの各行を表示幅(全角文字は2セルとして数えるEast Asian Width基準)
+// で測り、最大値を返す。herdrのソケットAPIには実colsを返すフィールドが存在しない(全method調査済み)
+// ため、pane.readで観測した実テキストの最大表示幅を実colsの代替値として使う。全行が実colsより
+// 短い場合は過小評価になり得るが、過小評価は折り返しを起こすだけでコンテンツ幅を超えていれば
+// 折り返しは起きないため実用上十分(colsCacheはグローのみで縮めないため、一度広い行を見れば
+// それ以降は正しいcolsに収束する)。
+func measureMaxWidth(ansiText string) int {
+	stripped := stripAnsi(ansiText)
+	max := 0
+	for _, line := range strings.Split(stripped, "\n") {
+		if w := runewidth.StringWidth(line); w > max {
+			max = w
+		}
+	}
+	return max
+}
+
+// observePaneSize はpane.readで取得したANSIテキストからtargetの実測幅を求め、colsCacheが
+// それより狭ければ更新する。狭い方向には更新しない(グローのみ)。内容によって幅が縮んだ広がった
+// を繰り返すと、pane_list上のSizeとxterm.js実サイズの不一致検知(web/transport/ws.jsの
+// checkPaneSizeSync)が誤って再subscribeを繰り返してしまうため。
+func (b *HerdrBackend) observePaneSize(target, ansiText string) {
+	w := measureMaxWidth(ansiText)
+	if w <= 0 {
+		return
+	}
+	b.sizeMu.Lock()
+	if cur, ok := b.colsCache[target]; !ok || w > cur {
+		b.colsCache[target] = w
+	}
+	b.sizeMu.Unlock()
+}
+
+// layoutRectFor はpane.layoutの結果からtargetのrectを引く。見つからない場合はtab全体の
+// area(旧実装のフォールバック挙動)を返す。
+func layoutRectFor(layout herdrLayout, target string) herdrRect {
+	for _, p := range layout.Panes {
+		if p.PaneID == target {
+			return p.Rect
+		}
+	}
+	return layout.Area
+}
+
+// paneSize はtargetの実ptyサイズ(cols, rows)を返す。
+// pane.layoutが返すrectはherdrデスクトップUI上の配置グリッド座標であり実ptyサイズでは
+// ない(実機確認済み: 同一paneでrect=54x23なのに実pty(sttyのrows/cols相当)は172x51だった)。
+// そのためrowsはpaneViewportRows(pane.get.scroll.viewport_rows、実測でsttyのrowsと一致)、
+// colsはobservePaneSizeがpane.readのANSIテキストから実測してきたcolsCacheを優先し、
+// どちらも取得できていない軸だけlayout rectへフォールバックする。
 func (b *HerdrBackend) paneSize(target string) (cols, rows int) {
+	rows = b.paneViewportRows(target)
+	if rows > 0 {
+		b.sizeMu.Lock()
+		b.rowsCache[target] = rows
+		b.sizeMu.Unlock()
+	}
+
+	b.sizeMu.Lock()
+	cols = b.colsCache[target]
+	b.sizeMu.Unlock()
+
+	if cols > 0 && rows > 0 {
+		return cols, rows
+	}
+
 	var res struct {
 		Layout herdrLayout `json:"layout"`
 	}
 	if err := b.client.call("pane.layout", map[string]string{"pane_id": target}, &res); err != nil {
-		return 0, 0
+		return cols, rows
 	}
-	for _, p := range res.Layout.Panes {
-		if p.PaneID == target {
-			return p.Rect.Width, p.Rect.Height
-		}
+	rect := layoutRectFor(res.Layout, target)
+	if cols == 0 {
+		cols = rect.Width
 	}
-	return res.Layout.Area.Width, res.Layout.Area.Height
+	if rows == 0 {
+		rows = rect.Height
+	}
+	return cols, rows
 }
 
 // Snapshot はスクロールバック込みの画面内容をANSI付きで1回分取得する。tmux版のcapture-pane
@@ -410,6 +514,8 @@ func (b *HerdrBackend) Snapshot(target string) ([]byte, int, int, error) {
 	}, &res); err != nil {
 		return nil, 0, 0, err
 	}
+	// 初回subscribeからcolsCacheが効くよう、paneSize呼び出しの前に実測しておく。
+	b.observePaneSize(target, res.Read.Text)
 	cols, rows := b.paneSize(target)
 	data := "\x1b[H\x1b[2J" + res.Read.Text
 	return []byte(data), cols, rows, nil
@@ -509,6 +615,8 @@ func (b *HerdrBackend) runPoller(target string, p *herdrPoller) {
 		if err := b.client.call("pane.read", params, &res); err != nil {
 			continue
 		}
+		// 内容更新でより広い行が現れたらcolsCacheをグローさせる(trim前の全文で実測する)。
+		b.observePaneSize(target, res.Read.Text)
 		text := res.Read.Text
 		if rows > 0 {
 			text = lastNLines(text, rows)

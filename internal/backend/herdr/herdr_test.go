@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -797,6 +798,217 @@ func TestHerdrBackendSyncSessionsIsNoop(t *testing.T) {
 	defer b.Close()
 	// Must not panic and must not require any socket connectivity.
 	b.SyncSessions([]backend.Session{{Name: "whatever"}})
+}
+
+// --- pane size detection (実pty実測: stripAnsi/measureMaxWidth/observePaneSize/paneSize) ---
+
+func TestStripAnsiRemovesSGRAndCR(t *testing.T) {
+	in := "\x1b[31mhello\x1b[0m\r\nworld\r\n"
+	got := stripAnsi(in)
+	want := "hello\nworld\n"
+	if got != want {
+		t.Errorf("stripAnsi(%q) = %q, want %q", in, got, want)
+	}
+}
+
+func TestMeasureMaxWidthCountsFullWidthCharsAsTwoCells(t *testing.T) {
+	// "全角文字"は4文字、East Asian Width Wideなので表示幅は8になる(半角なら4のはず)。
+	if got := measureMaxWidth("全角文字"); got != 8 {
+		t.Errorf("measureMaxWidth(zenkaku) = %d, want 8", got)
+	}
+}
+
+func TestMeasureMaxWidthIgnoresANSIAndTakesLongestLine(t *testing.T) {
+	text := "\x1b[31mshort\x1b[0m\r\n" + strings.Repeat("x", 60) + "\r\nshort2"
+	if got := measureMaxWidth(text); got != 60 {
+		t.Errorf("measureMaxWidth = %d, want 60 (longest line, ANSI stripped)", got)
+	}
+}
+
+// TestHerdrBackendSnapshotReturnsRealPtySize は本バグの中心的な回帰テスト。
+// pane.layoutが返すrect(グリッド座標)ではなく、pane.get.scroll.viewport_rowsと
+// pane.readテキストの実測幅が優先されることを確認する(実機確認済みの172x51 vs 54x23と同じ構図)。
+func TestHerdrBackendSnapshotReturnsRealPtySize(t *testing.T) {
+	s := newFakeHerdrServer(t)
+	wideText := "\x1b[31m" + strings.Repeat("x", 172) + "\x1b[0m\r\nshort line"
+	s.on("pane.read", func(json.RawMessage) (interface{}, string, string) {
+		return map[string]interface{}{"read": map[string]string{"text": wideText}}, "", ""
+	})
+	s.on("pane.get", func(json.RawMessage) (interface{}, string, string) {
+		return map[string]interface{}{
+			"pane": map[string]interface{}{
+				"scroll": map[string]interface{}{"viewport_rows": 51, "max_offset_from_bottom": 0},
+			},
+		}, "", ""
+	})
+	// pane.layoutは古いグリッド座標(54x23)を返す。実測値が優先され使われないことを確認する。
+	s.on("pane.layout", func(json.RawMessage) (interface{}, string, string) {
+		return map[string]interface{}{
+			"layout": map[string]interface{}{
+				"area": map[string]int{"width": 54, "height": 23},
+				"panes": []map[string]interface{}{
+					{"pane_id": "w1:p1", "rect": map[string]int{"width": 54, "height": 23}},
+				},
+			},
+		}, "", ""
+	})
+
+	b := New(s.socketPath())
+	defer b.Close()
+
+	data, cols, rows, err := b.Snapshot("w1:p1")
+	if err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+	if cols != 172 {
+		t.Errorf("cols = %d, want 172 (measured width, not layout rect 54)", cols)
+	}
+	if rows != 51 {
+		t.Errorf("rows = %d, want 51 (viewport_rows, not layout rect 23)", rows)
+	}
+	if len(data) == 0 {
+		t.Error("Snapshot data is empty")
+	}
+}
+
+func TestHerdrBackendPaneSizeFallsBackToLayoutRectWhenViewportRowsUnavailable(t *testing.T) {
+	s := newFakeHerdrServer(t)
+	// pane.getハンドラを登録しない -> viewport_rows取得失敗 -> layout rectへフォールバック。
+	// colsCacheも未観測(pane.read未呼び出し)なのでcolsもrectへフォールバックする。
+	s.on("pane.layout", func(json.RawMessage) (interface{}, string, string) {
+		return map[string]interface{}{
+			"layout": map[string]interface{}{
+				"area": map[string]int{"width": 54, "height": 23},
+				"panes": []map[string]interface{}{
+					{"pane_id": "w1:p1", "rect": map[string]int{"width": 54, "height": 23}},
+				},
+			},
+		}, "", ""
+	})
+
+	b := New(s.socketPath())
+	defer b.Close()
+
+	cols, rows := b.paneSize("w1:p1")
+	if cols != 54 || rows != 23 {
+		t.Errorf("paneSize = %dx%d, want 54x23 (layout rect fallback)", cols, rows)
+	}
+}
+
+// TestHerdrBackendColsCacheGrowsOnly はcolsCacheが縮まないことを確認する。内容依存で幅が
+// 揺れて再subscribeループになるのを防ぐための設計(observePaneSizeのコメント参照)。
+func TestHerdrBackendColsCacheGrowsOnly(t *testing.T) {
+	s := newFakeHerdrServer(t)
+	var mu sync.Mutex
+	text := strings.Repeat("x", 100)
+	s.on("pane.read", func(json.RawMessage) (interface{}, string, string) {
+		mu.Lock()
+		defer mu.Unlock()
+		return map[string]interface{}{"read": map[string]string{"text": text}}, "", ""
+	})
+	s.on("pane.get", func(json.RawMessage) (interface{}, string, string) {
+		return map[string]interface{}{
+			"pane": map[string]interface{}{"scroll": map[string]interface{}{"viewport_rows": 24}},
+		}, "", ""
+	})
+	s.on("pane.layout", func(json.RawMessage) (interface{}, string, string) {
+		return map[string]interface{}{
+			"layout": map[string]interface{}{"area": map[string]int{"width": 10, "height": 10}, "panes": []map[string]interface{}{}},
+		}, "", ""
+	})
+
+	b := New(s.socketPath())
+	defer b.Close()
+
+	_, cols1, _, err := b.Snapshot("w1:p1")
+	if err != nil {
+		t.Fatalf("Snapshot #1: %v", err)
+	}
+	if cols1 != 100 {
+		t.Fatalf("cols1 = %d, want 100", cols1)
+	}
+
+	mu.Lock()
+	text = strings.Repeat("x", 20) // 狭いテキストに変わる
+	mu.Unlock()
+
+	_, cols2, _, err := b.Snapshot("w1:p1")
+	if err != nil {
+		t.Fatalf("Snapshot #2: %v", err)
+	}
+	if cols2 != 100 {
+		t.Errorf("cols2 = %d, want 100 (colsCache should not shrink)", cols2)
+	}
+}
+
+// TestHerdrBackendListSessionsUsesCachedSizeAfterObserved はweb/transport/ws.jsの
+// checkPaneSizeSync再subscribeループ対策の回帰テスト: colsCache/rowsCacheが確定した後は
+// pane_listのSizeもSnapshotが返す実サイズと一致するようになることを確認する。
+func TestHerdrBackendListSessionsUsesCachedSizeAfterObserved(t *testing.T) {
+	s := newFakeHerdrServer(t)
+	s.on("workspace.list", func(json.RawMessage) (interface{}, string, string) {
+		return map[string]interface{}{
+			"workspaces": []map[string]interface{}{
+				{"workspace_id": "w1", "number": 1, "label": "proj", "focused": true, "agent_status": "working"},
+			},
+		}, "", ""
+	})
+	s.on("tab.list", func(json.RawMessage) (interface{}, string, string) {
+		return map[string]interface{}{
+			"tabs": []map[string]interface{}{
+				{"tab_id": "w1:t1", "workspace_id": "w1", "number": 1, "label": "1", "focused": true, "agent_status": "working"},
+			},
+		}, "", ""
+	})
+	s.on("pane.list", func(json.RawMessage) (interface{}, string, string) {
+		return map[string]interface{}{
+			"panes": []map[string]interface{}{
+				{"pane_id": "w1:p1", "terminal_id": "term_abc", "workspace_id": "w1", "tab_id": "w1:t1", "focused": true, "agent_status": "working"},
+			},
+		}, "", ""
+	})
+	s.on("pane.layout", func(json.RawMessage) (interface{}, string, string) {
+		return map[string]interface{}{
+			"layout": map[string]interface{}{
+				"area": map[string]int{"width": 54, "height": 23},
+				"panes": []map[string]interface{}{
+					{"pane_id": "w1:p1", "rect": map[string]int{"width": 54, "height": 23}},
+				},
+			},
+		}, "", ""
+	})
+	s.on("pane.read", func(json.RawMessage) (interface{}, string, string) {
+		return map[string]interface{}{"read": map[string]string{"text": strings.Repeat("x", 172)}}, "", ""
+	})
+	s.on("pane.get", func(json.RawMessage) (interface{}, string, string) {
+		return map[string]interface{}{
+			"pane": map[string]interface{}{"scroll": map[string]interface{}{"viewport_rows": 51}},
+		}, "", ""
+	})
+
+	b := New(s.socketPath())
+	defer b.Close()
+
+	// 観測前はrect由来のSize。
+	sessionsBefore, err := b.ListSessions()
+	if err != nil {
+		t.Fatalf("ListSessions (before): %v", err)
+	}
+	if got := sessionsBefore[0].Windows[0].Panes[0].Size; got != "54x23" {
+		t.Errorf("Size before observe = %q, want 54x23 (layout rect)", got)
+	}
+
+	if _, _, _, err := b.Snapshot("w1:p1"); err != nil {
+		t.Fatalf("Snapshot: %v", err)
+	}
+
+	sessionsAfter, err := b.ListSessions()
+	if err != nil {
+		t.Fatalf("ListSessions (after): %v", err)
+	}
+	if got := sessionsAfter[0].Windows[0].Panes[0].Size; got != "172x51" {
+		t.Errorf("Size after observe = %q, want 172x51 (cached real pty size)", got)
+	}
 }
 
 // --- socket path resolution ---
