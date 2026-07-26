@@ -704,6 +704,12 @@ button, input, textarea {
   background: var(--bg);
   -webkit-user-select: text;
   user-select: text;
+  /* 縦ジェスチャをブラウザのネイティブスクロールに渡さずJS(termSetupTouchScroll)へ
+     常にキャンセル可能な形で回す。iOSは最初のtouchmoveをpreventDefaultしないと
+     ジェスチャをネイティブスクロールとして確定させてしまい、以降のpreventDefaultが
+     効かなくなる(実機確認済み: 縦一直線ドラッグだけ動かない/ムラがある症状の原因)。
+     横方向のネイティブパン(overflow-x:auto)はpan-xで維持する。 */
+  touch-action: pan-x;
 }
 
 /* xterm.js使用時: FitAddonは#pane-contentの高さ/幅から.xterm自身のpaddingだけを差し引いて

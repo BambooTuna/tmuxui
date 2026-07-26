@@ -48,15 +48,22 @@ function termInit() {
 
 // xterm.js 6.0はビューポートをネイティブスクロール要素として公開しない(カスタム
 // スクロールバー実装で.xterm-viewportのscrollHeight==clientHeightになる。実測済み)ため、
-// モバイルのスワイプではスクロールバックを遡れない。縦方向のタッチジェスチャを
-// terminal.scrollLines()へ変換してローカルスクロールを実現する。横方向のジェスチャは
-// #pane-contentのoverflow-x:autoによるネイティブ横パンに委ねるため一切触らない。
-// スクロールバックが空のTUI(claude/vim等のalternate screen)ではscrollLinesが実質no-opで
-// 副作用は無い(TUIを遡る手段は従来通りリモートスクロールボタン)。
+// モバイルのスワイプではスクロールバックを遡れない。縦方向のタッチジェスチャをローカル
+// スクロールへ変換して実現する。横方向のジェスチャは#pane-contentのoverflow-x:autoによる
+// ネイティブ横パンに委ねるため一切触らない。
+//
+// 視覚モデル: [scrollback履歴 … terminal最上行 … terminal最下行] を1本の縦ストリームと
+// みなし、縦ドラッグはその上を連続的に移動する。実ptyサイズ修正でterminalの行数が
+// コンテナの表示行数より多くなったため(例: 51行 vs コンテナが表示できる範囲)、
+// 「scrollback(terminal.scrollLines)」と「#pane-content自体の縦パン(container.scrollTop、
+// terminal要素がコンテナより縦に大きい分の可動域)」という2つの独立したスクロール経路が
+// でき、ここを1本のジェスチャで繋ぐ必要がある。境界はcontainer.scrollTop==0(これより古い
+// 方向はscrollbackの領分)。スクロールバックが空のTUI(claude/vim等のalternate screen)では
+// scrollLinesが実質no-opで副作用は無い(TUIを遡る手段は従来通りリモートスクロールボタン)。
 function termSetupTouchScroll(container) {
   let startX = 0, startY = 0, lastY = 0;
   let axis = null; // null=未判定 / 'v'=縦(ローカルスクロール) / 'h'=横(ネイティブパンに委譲)
-  let acc = 0;
+  let acc = 0; // scrollLines用のセル高未満の端数の持ち越し(container.scrollTopはpx単位なので端数不要)
   container.addEventListener('touchstart', e => {
     if (e.touches.length !== 1) return;
     startX = e.touches[0].clientX;
@@ -75,9 +82,36 @@ function termSetupTouchScroll(container) {
       axis = dy >= dx ? 'v' : 'h';
     }
     if (axis !== 'v') return;
-    e.preventDefault(); // 縦はローカルスクロールに専念(rubber band等のネイティブ挙動を抑止)
-    acc += lastY - y; // 指を上へ(+)=下へスクロール、指を下へ(-)=過去へ遡る
+    // style.cssの`#pane-content { touch-action: pan-x }`により縦ジェスチャはブラウザの
+    // ネイティブスクロール候補から外れているため、ここでのpreventDefaultは常に効く
+    // (デッドゾーン判定中もtouch-actionは効いているので、判定完了前の6px未満の移動で
+    // ジェスチャがネイティブスクロールに確定してしまう心配はない)。
+    e.preventDefault();
+    const dyPx = lastY - y; // 指を上へ(+)=新しい方向(下へ進む)、指を下へ(-)=古い方向(過去へ遡る)
     lastY = y;
+
+    if (dyPx < 0) {
+      // 古い方向: まずコンテナ自体を上へパンし、scrollTopが0に達した残り分だけ
+      // scrollback(scrollLines)へ渡す。scrollTopはpx単位で正確に分割できる。
+      if (container.scrollTop > 0) {
+        const consumed = Math.max(dyPx, -container.scrollTop);
+        container.scrollTop += consumed;
+        acc += dyPx - consumed;
+      } else {
+        acc += dyPx;
+      }
+    } else if (dyPx > 0) {
+      // 新しい方向: scrollbackが過去位置にいる間(viewportY < baseY)はそちらを優先して
+      // 現在へ戻す。既に最下部(baseYに追いついている)ならコンテナを下へパンする。
+      // 境界跨ぎはtouchmoveが高頻度で発火するため次イベント以降で自然に切り替わる。
+      const buf = terminal.buffer.active;
+      if (buf.viewportY < buf.baseY) {
+        acc += dyPx;
+      } else {
+        container.scrollTop += dyPx;
+      }
+    }
+
     const screen = terminal.element && terminal.element.querySelector('.xterm-screen');
     const cell = screen && terminal.rows > 0 ? screen.clientHeight / terminal.rows : 0;
     if (cell > 0) {
