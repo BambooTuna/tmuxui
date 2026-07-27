@@ -332,4 +332,59 @@ function initRemoteScrollButtons() {
 
   bindButton(btnUp, false);
   bindButton(btnDown, true);
+
+  // 左右キー: 表面には▲▼だけ出しておき、たまに使う←→はトグルで露出。
+  // 縦のようなドラッグ量スクロールは要らないので tap + long-press repeat のみ。
+  const btnLeft = document.getElementById('btn-remote-scroll-left');
+  const btnRight = document.getElementById('btn-remote-scroll-right');
+  const btnToggle = document.getElementById('btn-remote-scroll-lr-toggle');
+  if (btnLeft && btnRight && btnToggle) {
+    const bindArrow = (btn, key) => {
+      let holdTimer = 0;
+      let repeatTimer = 0;
+      const clearTimers = () => {
+        if (holdTimer) { clearTimeout(holdTimer); holdTimer = 0; }
+        if (repeatTimer) { clearInterval(repeatTimer); repeatTimer = 0; }
+      };
+      const send = () => { if (state.currentPane) sendKeys(state.currentPane, key); };
+      const start = () => {
+        send();
+        btn.classList.add('remote-scroll-btn-active');
+        clearTimers();
+        holdTimer = setTimeout(() => {
+          holdTimer = 0;
+          repeatTimer = setInterval(send, HOLD_REPEAT_MS);
+        }, HOLD_DELAY_MS);
+      };
+      const end = () => {
+        clearTimers();
+        btn.classList.remove('remote-scroll-btn-active');
+      };
+      btn.addEventListener('touchstart', e => { e.preventDefault(); start(); }, { passive: false });
+      btn.addEventListener('touchend', e => { e.preventDefault(); end(); }, { passive: false });
+      btn.addEventListener('touchcancel', end);
+      btn.addEventListener('mousedown', e => {
+        e.preventDefault();
+        start();
+        const onMouseUp = () => {
+          end();
+          document.removeEventListener('mouseup', onMouseUp);
+        };
+        document.addEventListener('mouseup', onMouseUp);
+      });
+      btn.addEventListener('contextmenu', e => e.preventDefault());
+    };
+    bindArrow(btnLeft, 'Left');
+    bindArrow(btnRight, 'Right');
+
+    const setLrVisible = visible => {
+      btnLeft.hidden = !visible;
+      btnRight.hidden = !visible;
+      btnToggle.setAttribute('aria-expanded', visible ? 'true' : 'false');
+      btnToggle.classList.toggle('remote-scroll-btn-toggle-open', visible);
+    };
+    btnToggle.addEventListener('click', () => {
+      setLrVisible(btnLeft.hidden);
+    });
+  }
 }
