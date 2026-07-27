@@ -175,20 +175,8 @@ async function loadFilerFile(filePath) {
   try {
     const data = await apiFetch(`/api/filer/read?path=${encodeURIComponent(filePath)}&root=${encodeURIComponent(fs.rootPath)}`);
     el.innerHTML = '';
-    if (data.binary) {
-      const msg = document.createElement('div');
-      msg.className = 'filer-binary-msg';
-      msg.textContent = data.reason === 'file too large'
-        ? `ファイルが大きすぎます (${filerFormatSize(data.size)})`
-        : `バイナリファイルです (${filerFormatSize(data.size)})`;
-      el.appendChild(msg);
-    } else {
-      const pre = document.createElement('div');
-      pre.className = 'filer-file-content';
-      pre.textContent = data.content;
-      el.appendChild(pre);
-    }
-    // アクションボタン群 (html は「プレビュー」を追加)
+    // アクションボタン群 (html は「プレビュー」を追加)。長いファイルでも
+    // スクロールせず押せるよう内容より先頭に置く。
     const actions = document.createElement('div');
     actions.className = 'filer-file-actions';
     const ext = (filePath.match(/\.[^.]+$/) || [''])[0].toLowerCase();
@@ -204,6 +192,19 @@ async function loadFilerFile(filePath) {
     }
     actions.appendChild(filerDownloadBtn(filePath));
     el.appendChild(actions);
+    if (data.binary) {
+      const msg = document.createElement('div');
+      msg.className = 'filer-binary-msg';
+      msg.textContent = data.reason === 'file too large'
+        ? `ファイルが大きすぎます (${filerFormatSize(data.size)})`
+        : `バイナリファイルです (${filerFormatSize(data.size)})`;
+      el.appendChild(msg);
+    } else {
+      const pre = document.createElement('div');
+      pre.className = 'filer-file-content';
+      pre.textContent = data.content;
+      el.appendChild(pre);
+    }
   } catch (e) {
     el.textContent = `(読み込み失敗: ${e.message})`;
   }
