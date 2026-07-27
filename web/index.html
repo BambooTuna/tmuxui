@@ -11,7 +11,7 @@
   <meta name="theme-color" content="#1a1a2e">
   <link rel="icon" type="image/png" href="icon-192.png">
   <link rel="stylesheet" href="vendor/xterm/xterm.css">
-  <link rel="stylesheet" href="style.css?v=39">
+  <link rel="stylesheet" href="style.css?v=40">
 </head>
 <body>
 
@@ -71,9 +71,6 @@
     <div id="remote-scroll-buttons" class="remote-scroll-buttons">
       <button type="button" id="btn-remote-scroll-up" class="remote-scroll-btn" aria-label="上にスクロール(リモート)">&#9650;</button>
       <button type="button" id="btn-remote-scroll-down" class="remote-scroll-btn" aria-label="下にスクロール(リモート)">&#9660;</button>
-      <button type="button" id="btn-remote-scroll-lr-toggle" class="remote-scroll-btn remote-scroll-btn-toggle" aria-label="左右キーを表示" aria-expanded="false">&#8942;</button>
-      <button type="button" id="btn-remote-scroll-left" class="remote-scroll-btn remote-scroll-btn-lr" aria-label="左キー(リモート)" hidden>&#9664;</button>
-      <button type="button" id="btn-remote-scroll-right" class="remote-scroll-btn remote-scroll-btn-lr" aria-label="右キー(リモート)" hidden>&#9654;</button>
     </div>
     <div id="filer-panel" hidden class="filer-panel">
       <div class="filer-toolbar">
@@ -236,6 +233,14 @@
           <span class="sheet-key-icon">⇟</span>
           <span class="sheet-key-label">PgDn</span>
         </button>
+        <button type="button" class="sheet-key" data-keys="Left">
+          <span class="sheet-key-icon">←</span>
+          <span class="sheet-key-label">左</span>
+        </button>
+        <button type="button" class="sheet-key" data-keys="Right">
+          <span class="sheet-key-icon">→</span>
+          <span class="sheet-key-label">右</span>
+        </button>
         <button type="button" class="sheet-category" data-submenu="commands">
           <span class="sheet-key-icon">/</span>
           <span class="sheet-key-label">コマンド</span>
@@ -344,7 +349,7 @@
 
   <!-- render -->
   <script src="render/palette.js?v=1"></script>
-  <script src="render/xterm-view.js?v=5"></script>
+  <script src="render/xterm-view.js?v=6"></script>
 
   <!-- transport -->
   <script src="transport/ws.js?v=2"></script>

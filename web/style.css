@@ -769,23 +769,6 @@ button, input, textarea {
   background: var(--accent);
   color: var(--bg);
 }
-/* 左右トグル: 表面(閉状態)は小さめ・淡めで▲▼を邪魔しない。開くと同サイズ扱い */
-.remote-scroll-btn-toggle {
-  width: 32px;
-  height: 32px;
-  font-size: 14px;
-  opacity: 0.7;
-  align-self: center;
-}
-.remote-scroll-btn-toggle.remote-scroll-btn-toggle-open {
-  opacity: 1;
-}
-/* 左右ボタン(展開時のみ表示。トグルの下に縦積み) */
-.remote-scroll-btn-lr {
-  width: 40px;
-  height: 40px;
-  font-size: 14px;
-}
 
 /* ===== テキストビュー(コピー用オーバーレイ) =====
    xterm.jsのタッチ選択は実用にならないため、コピーはこの全画面プレーンテキスト
