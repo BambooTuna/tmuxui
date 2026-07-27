@@ -412,6 +412,22 @@ function initFilerUpload() {
     }
   });
 
+  // ヘッダー直行アップロード (ファイラーを開かずにアップロード → トーストから即パスコピー)
+  const headerInput = $('header-upload-input');
+  $('btn-header-upload').addEventListener('click', () => {
+    const sessionName = state.currentSession;
+    if (!sessionName) return;
+    const pane = findPane(sessionName, state.currentWindow, state.currentPane);
+    initFilerForSession(sessionName, pane?.path || '');
+    headerInput.value = '';
+    headerInput.click();
+  });
+  headerInput.addEventListener('change', () => {
+    if (headerInput.files.length > 0) {
+      uploadFiles(headerInput.files);
+    }
+  });
+
   // ドラッグ&ドロップ
   const panel = $('filer-panel');
   panel.addEventListener('dragover', e => {
@@ -589,8 +605,10 @@ async function uploadFiles(fileList) {
   }
 
   // トーストは×ボタンを押すまで表示し続ける(自動消滅はしない)
-  // ファイラーのリストを更新
-  loadFilerDir(fs.currentPath || fs.rootPath);
+  // ヘッダー直行アップロード時はファイラー非表示なのでリロード不要
+  if (fs.active) {
+    loadFilerDir(fs.currentPath || fs.rootPath);
+  }
 }
 
 // セッション切替時にファイラー状態を復元/リセット

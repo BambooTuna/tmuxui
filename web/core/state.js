@@ -15,7 +15,6 @@ const state = {
   pendingPermission: null,
   reconnectTimer: null,
   refreshing: false,
-  autoApprove: false,
   claudeCommands: null,
   pinnedSessions: [],
   settingsReturnView: 'sessions',

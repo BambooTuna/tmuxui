@@ -40,7 +40,11 @@ async function copyTextViewAll() {
 }
 
 function initTextView() {
-  $('btn-text-view').addEventListener('click', openTextView);
+  $('btn-text-view').addEventListener('click', () => {
+    // ドロワー(☰)最上段からの起動: 先にドロワーを閉じてからオーバーレイ表示
+    if (typeof closeDrawer === 'function') closeDrawer();
+    openTextView();
+  });
   $('text-view-close').addEventListener('click', closeTextView);
   $('text-view-copy-all').addEventListener('click', copyTextViewAll);
 }

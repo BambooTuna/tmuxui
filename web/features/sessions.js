@@ -706,10 +706,6 @@ function stopRefreshing() {
 
 // ===== Permission =====
 function showPermissionBanner(msg) {
-  if (state.autoApprove && msg.target) {
-    sendKeys(msg.target, 'Enter');
-    return;
-  }
   state.pendingPermission = msg;
   $('permission-prompt-text').textContent = msg.prompt || '権限許可が必要です';
   $('permission-banner').hidden = false;
@@ -777,12 +773,6 @@ function initSessions() {
 
   // Drawer
   $('btn-menu').addEventListener('click', openDrawer);
-
-  // Auto approve toggle
-  $('btn-auto-approve').addEventListener('click', () => {
-    state.autoApprove = !state.autoApprove;
-    $('btn-auto-approve').classList.toggle('active', state.autoApprove);
-  });
 
   // Permission dismiss
   $('btn-perm-dismiss').addEventListener('click', hidePermissionBanner);

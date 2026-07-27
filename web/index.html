@@ -11,7 +11,7 @@
   <meta name="theme-color" content="#1a1a2e">
   <link rel="icon" type="image/png" href="icon-192.png">
   <link rel="stylesheet" href="vendor/xterm/xterm.css">
-  <link rel="stylesheet" href="style.css?v=36">
+  <link rel="stylesheet" href="style.css?v=38">
 </head>
 <body>
 
@@ -39,8 +39,8 @@
         <span id="breadcrumb-sep" class="breadcrumb-sep">›</span>
         <button id="breadcrumb-window" class="breadcrumb-window"></button>
       </span>
-      <button id="btn-text-view" class="btn-icon" aria-label="テキスト選択">&#9112;</button>
-      <button id="btn-filer" class="btn-icon btn-filer" aria-label="ファイラー">&#8862;</button>
+      <button id="btn-header-upload" class="btn-icon" aria-label="アップロード">&#8613;</button>
+      <button id="btn-filer" class="btn-icon btn-filer" aria-label="ファイラー">&#9636;</button>
       <button id="btn-menu" class="btn-icon" aria-label="メニュー">&#9776;</button>
     </header>
     <!-- ===== 権限バナー（通知のみ） ===== -->
@@ -54,12 +54,13 @@
     <!-- ===== ペインドロワー ===== -->
     <div id="drawer-overlay" hidden class="drawer-overlay"></div>
     <nav id="drawer" class="drawer">
+      <button id="btn-text-view" class="drawer-primary-btn" aria-label="テキストコピー">
+        <span class="drawer-primary-icon">Aa</span>
+        <span class="drawer-primary-label">テキストコピー</span>
+      </button>
       <div class="drawer-header">Panes</div>
       <div id="drawer-pane-list" class="drawer-list"></div>
       <div class="drawer-actions">
-        <button id="btn-auto-approve" class="drawer-action-btn" aria-label="自動許可">
-          <span class="drawer-action-icon">&#9889;</span> AUTO
-        </button>
         <button id="btn-refresh" class="drawer-action-btn" aria-label="更新">
           <span class="drawer-action-icon">&#8635;</span> 更新
         </button>
@@ -79,6 +80,7 @@
         <button id="btn-filer-new-md" class="btn-filer-nav btn-filer-action" aria-label="新規 .md">＋</button>
       </div>
       <input type="file" id="filer-upload-input" hidden multiple>
+    <input type="file" id="header-upload-input" hidden multiple>
       <div id="filer-content" class="filer-content"></div>
     </div>
     <div class="input-area">
@@ -345,12 +347,12 @@
   <script src="transport/ws.js?v=2"></script>
 
   <!-- features -->
-  <script src="features/sessions.js?v=3"></script>
+  <script src="features/sessions.js?v=4"></script>
   <script src="features/input-bar.js?v=2"></script>
   <script src="features/settings.js?v=2"></script>
-  <script src="features/filer.js?v=2"></script>
+  <script src="features/filer.js?v=3"></script>
   <script src="features/snippet.js?v=1"></script>
-  <script src="features/text-view.js?v=1"></script>
+  <script src="features/text-view.js?v=2"></script>
 
   <!-- bootstrap -->
   <script src="bootstrap.js?v=2"></script>
