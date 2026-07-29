@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -155,6 +156,65 @@ func TestHerdrClientCallUnreachableSocket(t *testing.T) {
 	c := newHerdrClient(filepath.Join(t.TempDir(), "does-not-exist.sock"))
 	if err := c.call("ping", struct{}{}, nil); err == nil {
 		t.Fatal("call: expected error for unreachable socket, got nil")
+	}
+}
+
+// TestRecordDialErrorExitsOnRepeatedENXIO は、Docker bind mountでhost側socketが再生成
+// されてコンテナ内で古いinodeを見続けてしまう症状(net.Dial→ENXIO)が閾値回連続したときに
+// exitOnENXIOが呼ばれることを検証する。実運用ではrestart policyでコンテナが再起動され、
+// mount namespaceが作り直されて復旧する。
+func TestRecordDialErrorExitsOnRepeatedENXIO(t *testing.T) {
+	orig := exitOnENXIO
+	var exitCode int
+	var exited bool
+	exitOnENXIO = func(code int) { exitCode = code; exited = true }
+	t.Cleanup(func() { exitOnENXIO = orig })
+
+	c := newHerdrClient("/tmp/does-not-matter.sock")
+	enxioErr := &net.OpError{Op: "dial", Net: "unix", Err: &os.SyscallError{Syscall: "connect", Err: syscall.ENXIO}}
+
+	for i := 1; i < herdrMaxConsecutiveENXIO; i++ {
+		c.recordDialError(enxioErr)
+		if exited {
+			t.Fatalf("exitOnENXIO called too early after %d ENXIOs", i)
+		}
+	}
+	c.recordDialError(enxioErr)
+	if !exited {
+		t.Fatalf("exitOnENXIO not called after %d consecutive ENXIOs", herdrMaxConsecutiveENXIO)
+	}
+	if exitCode != 1 {
+		t.Errorf("exit code = %d, want 1", exitCode)
+	}
+}
+
+// TestRecordDialErrorResetsStreakOnNonENXIO は、ENXIO以外(ENOENTなどsocket自体が無い状態)
+// で連続カウンタがリセットされ、初回接続不可な環境で誤ってexitしないことを検証する。
+func TestRecordDialErrorResetsStreakOnNonENXIO(t *testing.T) {
+	orig := exitOnENXIO
+	var exited bool
+	exitOnENXIO = func(int) { exited = true }
+	t.Cleanup(func() { exitOnENXIO = orig })
+
+	c := newHerdrClient("/tmp/does-not-matter.sock")
+	enxioErr := &net.OpError{Op: "dial", Net: "unix", Err: &os.SyscallError{Syscall: "connect", Err: syscall.ENXIO}}
+	enoentErr := &net.OpError{Op: "dial", Net: "unix", Err: &os.SyscallError{Syscall: "connect", Err: syscall.ENOENT}}
+
+	for i := 0; i < herdrMaxConsecutiveENXIO*2; i++ {
+		c.recordDialError(enoentErr)
+	}
+	if exited {
+		t.Fatal("exitOnENXIO called for ENOENT (herdr never present); should only fire on ENXIO")
+	}
+
+	// ENXIOを閾値-1回積んだあとENOENTで途切れると、再びENXIOになっても閾値まで新規に積む必要がある。
+	for i := 1; i < herdrMaxConsecutiveENXIO; i++ {
+		c.recordDialError(enxioErr)
+	}
+	c.recordDialError(enoentErr) // reset
+	c.recordDialError(enxioErr)
+	if exited {
+		t.Fatal("exitOnENXIO called after streak was reset by ENOENT")
 	}
 }
 

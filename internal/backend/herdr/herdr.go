@@ -5,7 +5,9 @@ package herdr
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -14,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/mattn/go-runewidth"
@@ -26,7 +29,15 @@ const (
 	herdrRequestTimeout        = 5 * time.Second
 	herdrSubscribePollInterval = 400 * time.Millisecond
 	herdrTopologyPollInterval  = 2 * time.Second
+	// herdrMaxConsecutiveENXIO はDialでENXIO(No such device or address)が連続してこの回数
+	// 発生したらプロセスを終了させる閾値。Docker bind mountでホスト側socketが再作成された
+	// ときにコンテナ内のinodeが古いまま固定される問題は、mount namespaceごと作り直す(=
+	// コンテナ再起動)以外に復旧手段がないため、restart policyに任せて自死する。
+	herdrMaxConsecutiveENXIO = 3
 )
+
+// exitOnENXIO はテストでフックできるようos.Exit相当を差し替え可能にする。
+var exitOnENXIO = func(code int) { os.Exit(code) }
 
 // DefaultSocketPath はherdrのソケットパス解決順(HERDR_SOCKET_PATH -> HERDR_SESSION -> デフォルト)
 // に従い、herdrデーモンが待ち受けるUnixドメインソケットのパスを返す。
@@ -50,12 +61,27 @@ func DefaultSocketPath() string {
 // レイテンシがほぼゼロなため、これで永続接続の多重化・再接続状態管理を丸ごと避けられる。
 // herdrサーバーが再起動していても次回呼び出しが素朴に再接続するだけで自然に復旧する。
 type herdrClient struct {
-	socketPath string
-	idCounter  uint64
+	socketPath  string
+	idCounter   uint64
+	enxioStreak atomic.Uint32
 }
 
 func newHerdrClient(socketPath string) *herdrClient {
 	return &herdrClient{socketPath: socketPath}
+}
+
+// recordDialError はDialエラーを観察し、ENXIOが連続してherdrMaxConsecutiveENXIO回に達したら
+// プロセスを終了させる。ENXIO以外(ENOENTなどsocket自体が無い状態を含む)ならstreakをリセット。
+func (c *herdrClient) recordDialError(err error) {
+	if !errors.Is(err, syscall.ENXIO) {
+		c.enxioStreak.Store(0)
+		return
+	}
+	n := c.enxioStreak.Add(1)
+	if n >= herdrMaxConsecutiveENXIO {
+		log.Printf("herdr: socket bind mount appears stale (ENXIO x%d at %s); exiting to let container restart policy remount", n, c.socketPath)
+		exitOnENXIO(1)
+	}
 }
 
 type herdrRequest struct {
@@ -89,8 +115,10 @@ func (c *herdrClient) call(method string, params interface{}, out interface{}) e
 
 	conn, err := net.DialTimeout("unix", c.socketPath, herdrDialTimeout)
 	if err != nil {
+		c.recordDialError(err)
 		return fmt.Errorf("herdr: dial: %w", err)
 	}
+	c.enxioStreak.Store(0)
 	defer conn.Close()
 	conn.SetDeadline(time.Now().Add(herdrRequestTimeout))
 
