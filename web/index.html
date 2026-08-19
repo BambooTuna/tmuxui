@@ -20,6 +20,7 @@
     <header class="header">
       <h1 class="app-title">tmuxui</h1>
       <button id="btn-new-session" class="btn-icon" aria-label="新規セッション">＋</button>
+      <button id="btn-terminal" class="btn-icon" aria-label="ブラウザ端末" title="ブラウザ端末">&gt;_</button>
       <button id="btn-settings" class="btn-icon" aria-label="設定">&#9881;</button>
       <span id="ws-dot" class="ws-dot"></span>
     </header>
@@ -168,6 +169,21 @@
             <button type="button" id="update-version-refresh-btn" class="modal-btn modal-btn-cancel">一覧を更新</button>
             <button type="button" id="update-version-apply-btn" class="modal-btn modal-btn-ok" disabled>このバージョンに切替</button>
           </div>
+        </div>
+      </div>
+      <div class="settings-section">
+        <div class="settings-section-title">ブラウザ端末</div>
+        <div class="settings-row">
+          <span class="settings-row-label">ユーザー</span>
+          <input type="text" id="terminal-user" class="modal-input" style="max-width:180px" placeholder="空=現在のユーザー" autocomplete="off">
+        </div>
+        <div class="settings-row">
+          <span class="settings-row-label">シェル</span>
+          <input type="text" id="terminal-shell" class="modal-input" style="max-width:180px" placeholder="空=$SHELL→bash→sh" autocomplete="off">
+        </div>
+        <p class="settings-hint">ユーザーを指定すると <code>sudo -n -u &lt;user&gt;</code> で切り替えます (要 sudo 設定・パスワード対話不可)。</p>
+        <div class="modal-buttons">
+          <button type="button" id="terminal-open-btn" class="modal-btn modal-btn-ok">開く</button>
         </div>
       </div>
     </div>
@@ -357,7 +373,7 @@
   <!-- features -->
   <script src="features/sessions.js?v=4"></script>
   <script src="features/input-bar.js?v=2"></script>
-  <script src="features/settings.js?v=2"></script>
+  <script src="features/settings.js?v=3"></script>
   <script src="features/filer.js?v=4"></script>
   <script src="features/snippet.js?v=1"></script>
   <script src="features/text-view.js?v=2"></script>

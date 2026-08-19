@@ -251,6 +251,52 @@ applyTheme(getCachedTheme(), false);
 // ===== transport/ws.js からの通知 =====
 bus.on('ws:update_status', e => renderUpdateSection(e.detail.updateStatus));
 
+// ===== ブラウザ端末 =====
+// prefs.terminal = {user, shell} を保存し、/terminal を新タブで開く。
+// 一覧ヘッダのボタンからは "保存済み設定で即開く" ショートカット動線として使う。
+function currentTerminalPrefs() {
+  const p = (getPreferences() || {}).terminal || {};
+  return { user: (p.user || '').trim(), shell: (p.shell || '').trim() };
+}
+
+function buildTerminalURL() {
+  const { user, shell } = currentTerminalPrefs();
+  const q = new URLSearchParams();
+  if (user) q.set('u', user);
+  if (shell) q.set('s', shell);
+  const qs = q.toString();
+  return '/terminal' + (qs ? '?' + qs : '');
+}
+
+function openTerminal() {
+  window.open(buildTerminalURL(), '_blank', 'noopener');
+}
+
+function initTerminalSettings() {
+  const userEl = document.getElementById('terminal-user');
+  const shellEl = document.getElementById('terminal-shell');
+  const openBtn = document.getElementById('terminal-open-btn');
+  if (!userEl || !shellEl || !openBtn) return;
+
+  loadPreferences().then(() => {
+    const { user, shell } = currentTerminalPrefs();
+    if (document.activeElement !== userEl) userEl.value = user;
+    if (document.activeElement !== shellEl) shellEl.value = shell;
+  });
+
+  const saveTerminal = () => {
+    savePreferences({ terminal: { user: userEl.value.trim(), shell: shellEl.value.trim() } });
+  };
+  userEl.addEventListener('change', saveTerminal);
+  userEl.addEventListener('blur', saveTerminal);
+  shellEl.addEventListener('change', saveTerminal);
+  shellEl.addEventListener('blur', saveTerminal);
+  openBtn.addEventListener('click', () => {
+    saveTerminal();
+    openTerminal();
+  });
+}
+
 // ===== 初期化 =====
 function initSettings() {
   document.getElementById('btn-settings').addEventListener('click', showSettings);
@@ -270,4 +316,13 @@ function initSettings() {
   const versionApplyBtn = document.getElementById('update-version-apply-btn');
   if (versionRefreshBtn) versionRefreshBtn.addEventListener('click', loadAvailableReleases);
   if (versionApplyBtn) versionApplyBtn.addEventListener('click', applyVersionSwitch);
+
+  initTerminalSettings();
+  const termBtn = document.getElementById('btn-terminal');
+  if (termBtn) {
+    termBtn.addEventListener('click', () => {
+      // 事前にprefsを読み込んでから開く。まだ未ロードの場合を考慮
+      loadPreferences().then(openTerminal);
+    });
+  }
 }

@@ -39,10 +39,18 @@
 
   function wsURL() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    // Cookie経由で認証は通るが、初回アクセスでCookieがまだ立っていないケースを
-    // 拾うため、URLに?token=も残っていれば付与する
-    const tok = new URLSearchParams(location.search).get('token');
-    return proto + '//' + location.host + '/ws/shell' + (tok ? '?token=' + encodeURIComponent(tok) : '');
+    const src = new URLSearchParams(location.search);
+    const q = new URLSearchParams();
+    const tok = src.get('token');
+    if (tok) q.set('token', tok);
+    // u/s は index.js 側から /terminal?u=&s= で渡ってくる想定。
+    // /terminal を token だけで開いた場合は指定なしのfallback起動になる。
+    const u = src.get('u');
+    const s = src.get('s');
+    if (u) q.set('user', u);
+    if (s) q.set('shell', s);
+    const qs = q.toString();
+    return proto + '//' + location.host + '/ws/shell' + (qs ? '?' + qs : '');
   }
 
   function sendResize() {

@@ -11,12 +11,16 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"regexp"
 	"strings"
 	"sync"
 
 	"github.com/creack/pty"
 	"github.com/gorilla/websocket"
 )
+
+// POSIX ユーザー名 + サロゲート的な範囲。sudo -u に渡す前の sanity check。
+var userNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_.-]*$`)
 
 var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool {
@@ -41,28 +45,50 @@ var upgrader = websocket.Upgrader{
 }
 
 // Handler は "/ws/shell" を受ける http.HandlerFunc を返す。
+// クエリ: ?user=<name>&shell=<path>
+// user 指定時は sudo -n -u <user> -H で切り替える(sudo設定必須、パスワード対話は不許可)。
+// shell 未指定時は $SHELL → bash → /bin/sh の順で解決する。
 func Handler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		user := r.URL.Query().Get("user")
+		shell := r.URL.Query().Get("shell")
+		if user != "" && !userNameRe.MatchString(user) {
+			http.Error(w, "invalid user", http.StatusBadRequest)
+			return
+		}
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			return
 		}
 		defer conn.Close()
-		serve(conn)
+		serve(conn, user, shell)
 	}
 }
 
-func serve(conn *websocket.Conn) {
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		if p, err := exec.LookPath("bash"); err == nil {
-			shell = p
-		} else {
-			shell = "/bin/sh"
-		}
+func resolveShell(explicit string) string {
+	if explicit != "" {
+		return explicit
 	}
+	if s := os.Getenv("SHELL"); s != "" {
+		return s
+	}
+	if p, err := exec.LookPath("bash"); err == nil {
+		return p
+	}
+	return "/bin/sh"
+}
 
-	cmd := exec.Command(shell, "-l")
+func serve(conn *websocket.Conn, targetUser, explicitShell string) {
+	shell := resolveShell(explicitShell)
+
+	var cmd *exec.Cmd
+	if targetUser != "" {
+		// -n: 非対話。パスワード要求で即失敗させる(WSからパスワード入力を扱わないため)
+		// -H: HOMEを切替先ユーザーのものに設定
+		cmd = exec.Command("sudo", "-n", "-u", targetUser, "-H", shell, "-l")
+	} else {
+		cmd = exec.Command(shell, "-l")
+	}
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
 	if home, err := os.UserHomeDir(); err == nil {
 		cmd.Dir = home
