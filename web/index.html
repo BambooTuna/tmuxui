@@ -182,6 +182,13 @@
           <input type="text" id="terminal-shell" class="modal-input" style="max-width:180px" placeholder="空=$SHELL→bash→sh" autocomplete="off">
         </div>
         <p class="settings-hint">ユーザーを指定すると <code>sudo -n -u &lt;user&gt;</code> で切り替えます (要 sudo 設定・パスワード対話不可)。</p>
+        <div class="settings-row" style="align-items:flex-start">
+          <span class="settings-row-label">キーバインド</span>
+          <textarea id="terminal-keybindings" class="modal-input" spellcheck="false" autocorrect="off" autocapitalize="off"
+                    style="width:100%;min-height:140px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;white-space:pre"
+                    placeholder="keybind = cmd+shift+h=text:\x01v"></textarea>
+        </div>
+        <p class="settings-hint">Ghostty config の <code>keybind = &lt;keys&gt;=text:&lt;bytes&gt;</code> 行を貼り付け可 (エスケープ <code>\x01</code> <code>\e</code> 対応)。空欄で組み込みデフォルト。</p>
         <div class="modal-buttons">
           <button type="button" id="terminal-open-btn" class="modal-btn modal-btn-ok">開く</button>
         </div>
@@ -373,7 +380,7 @@
   <!-- features -->
   <script src="features/sessions.js?v=4"></script>
   <script src="features/input-bar.js?v=2"></script>
-  <script src="features/settings.js?v=4"></script>
+  <script src="features/settings.js?v=5"></script>
   <script src="features/filer.js?v=4"></script>
   <script src="features/snippet.js?v=1"></script>
   <script src="features/text-view.js?v=2"></script>

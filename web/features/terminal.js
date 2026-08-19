@@ -27,26 +27,93 @@
   // で吸収する。fullscreen外では諦める。
 
   // xterm.js は Cmd (Meta) 修飾キー付きの入力をデフォルトで送信しない。
-  // ホスト terminal (Ghostty等) が Cmd+Shift+ を独自マッピングで送っている
-  // バイト列と同じものを WS 経由で送出する。マッピングは xxd で採取した値:
-  //   Cmd+Shift+[ → ^A + Up  (herdr previous-space)
-  //   Cmd+Shift+] → ^A + Down (herdr next-space)
-  //   Cmd+Shift+H → ^A + v   (herdr split)
-  //   Cmd+Shift+V → ^A + -   (herdr split)
-  // TODO: 将来的にはprefsで編集可能なマッピングに拡張する
-  const CMD_SHIFT_MAP = {
-    BracketLeft: '\x01\x1b[A',
-    BracketRight: '\x01\x1b[B',
-    KeyH: '\x01v',
-    KeyV: '\x01-',
+  // ホスト terminal (Ghostty等) の設定を Ghostty config 形式そのままで
+  // prefs.terminalKeybindings に貼り付けると、全てのキーが同じ挙動になる。
+  //   keybind = cmd+shift+h=text:\x01v
+  //   keybind = cmd+bracket_left=text:\x01p
+  //   ...
+  // 空欄時は組み込みデフォルト (最小4種+2種)。
+  const DEFAULT_KEYBINDINGS = [
+    'keybind = cmd+shift+bracket_left=text:\\x01\\x1b[A',
+    'keybind = cmd+shift+bracket_right=text:\\x01\\x1b[B',
+    'keybind = cmd+shift+h=text:\\x01v',
+    'keybind = cmd+shift+v=text:\\x01-',
+    'keybind = cmd+bracket_left=text:\\x01p',
+    'keybind = cmd+bracket_right=text:\\x01n',
+  ].join('\n');
+
+  function decodeEscapes(s) {
+    return s.replace(/\\(x[0-9a-fA-F]{2}|u[0-9a-fA-F]{4}|e|n|t|r|\\|")/g, (m, esc) => {
+      const c = esc[0];
+      if (c === 'x' || c === 'u') return String.fromCharCode(parseInt(esc.slice(1), 16));
+      if (esc === 'e') return '\x1b';
+      if (esc === 'n') return '\n';
+      if (esc === 't') return '\t';
+      if (esc === 'r') return '\r';
+      if (esc === '\\') return '\\';
+      if (esc === '"') return '"';
+      return m;
+    });
+  }
+  function parseKeybindings(text) {
+    const map = new Map();
+    for (const raw of String(text || '').split('\n')) {
+      const line = raw.replace(/#.*$/, '').trim();
+      if (!line) continue;
+      const m = line.match(/^keybind\s*=\s*([^=]+)=text:(.*)$/);
+      if (!m) continue;
+      map.set(m[1].trim().toLowerCase(), decodeEscapes(m[2]));
+    }
+    return map;
+  }
+  const CODE_TO_NAME = {
+    BracketLeft: 'bracket_left', BracketRight: 'bracket_right',
+    Semicolon: 'semicolon', Quote: 'apostrophe',
+    Comma: 'comma', Period: 'period', Slash: 'slash',
+    Backquote: 'grave_accent', Minus: 'minus', Equal: 'equal',
+    Enter: 'enter', Tab: 'tab', Space: 'space', Escape: 'escape',
+    Backspace: 'backspace', Delete: 'delete',
+    ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right',
+    PageUp: 'page_up', PageDown: 'page_down', Home: 'home', End: 'end',
   };
+  function codeToName(code) {
+    if (code.startsWith('Key')) return code.slice(3).toLowerCase();
+    if (code.startsWith('Digit')) return code.slice(5);
+    if (code.startsWith('F') && /^F\d+$/.test(code)) return code.toLowerCase();
+    return CODE_TO_NAME[code] || code.toLowerCase();
+  }
+  function eventKeySpec(e) {
+    const parts = [];
+    if (e.metaKey) parts.push('cmd');
+    if (e.ctrlKey) parts.push('ctrl');
+    if (e.altKey) parts.push('alt');
+    if (e.shiftKey) parts.push('shift');
+    parts.push(codeToName(e.code));
+    return parts.join('+');
+  }
+
+  let keyMap = parseKeybindings(DEFAULT_KEYBINDINGS);
+  (async () => {
+    try {
+      const src = new URLSearchParams(location.search);
+      const tok = src.get('token');
+      const url = '/api/preferences' + (tok ? '?token=' + encodeURIComponent(tok) : '');
+      const r = await fetch(url);
+      if (!r.ok) return;
+      const prefs = await r.json();
+      const t = prefs && prefs.terminalKeybindings;
+      if (typeof t === 'string' && t.trim()) {
+        keyMap = parseKeybindings(t);
+      }
+    } catch (_) {}
+  })();
+
   term.attachCustomKeyEventHandler((e) => {
     if (e.type !== 'keydown') return true;
-    if (!e.metaKey || !e.shiftKey || e.ctrlKey || e.altKey) return true;
-    const payload = CMD_SHIFT_MAP[e.code];
-    if (!payload) return true;
+    const bytes = keyMap.get(eventKeySpec(e));
+    if (!bytes) return true;
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(enc.encode(payload));
+      ws.send(enc.encode(bytes));
     }
     e.preventDefault();
     return false;

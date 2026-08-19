@@ -279,6 +279,7 @@ function openTerminal() {
 function initTerminalSettings() {
   const userEl = document.getElementById('terminal-user');
   const shellEl = document.getElementById('terminal-shell');
+  const kbEl = document.getElementById('terminal-keybindings');
   const openBtn = document.getElementById('terminal-open-btn');
   if (!userEl || !shellEl || !openBtn) return;
 
@@ -286,17 +287,29 @@ function initTerminalSettings() {
     const { user, shell } = currentTerminalPrefs();
     if (document.activeElement !== userEl) userEl.value = user;
     if (document.activeElement !== shellEl) shellEl.value = shell;
+    if (kbEl && document.activeElement !== kbEl) {
+      kbEl.value = (getPreferences() || {}).terminalKeybindings || '';
+    }
   });
 
   const saveTerminal = () => {
     savePreferences({ terminal: { user: userEl.value.trim(), shell: shellEl.value.trim() } });
   };
+  const saveKeybindings = () => {
+    if (!kbEl) return;
+    savePreferences({ terminalKeybindings: kbEl.value });
+  };
   userEl.addEventListener('change', saveTerminal);
   userEl.addEventListener('blur', saveTerminal);
   shellEl.addEventListener('change', saveTerminal);
   shellEl.addEventListener('blur', saveTerminal);
+  if (kbEl) {
+    kbEl.addEventListener('blur', saveKeybindings);
+    kbEl.addEventListener('change', saveKeybindings);
+  }
   openBtn.addEventListener('click', () => {
     saveTerminal();
+    saveKeybindings();
     openTerminal();
   });
 }
