@@ -80,19 +80,31 @@ func resolveShell(explicit string) string {
 
 func serve(conn *websocket.Conn, targetUser, explicitShell string) {
 	shell := resolveShell(explicitShell)
+	// "-l" (login shell) は空欄フォールバック時のみ付ける。
+	// ユーザーが明示的に "herdr" のような shell 以外を指定した場合に "-l" を
+	// 付けると誤ってオプション扱いされて起動失敗するため。
+	// bash等をログインshellとして立てたい人は明示的に "bash -l" と書けばsh -c経由で通る。
+	useLogin := explicitShell == ""
 
 	var cmd *exec.Cmd
 	switch {
 	case targetUser != "":
 		// -n: 非対話。パスワード要求で即失敗させる(WSからパスワード入力を扱わないため)
 		// -H: HOMEを切替先ユーザーのものに設定
-		cmd = exec.Command("sudo", "-n", "-u", targetUser, "-H", shell, "-l")
+		args := []string{"-n", "-u", targetUser, "-H", shell}
+		if useLogin {
+			args = append(args, "-l")
+		}
+		cmd = exec.Command("sudo", args...)
 	case strings.ContainsAny(shell, " \t"):
 		// "ssh localhost", "tmux new -s foo" のような複合コマンドは sh -c 経由で解釈する。
-		// これにより「dockerコンテナから ssh localhost で WSL host に戻る」等の運用ができる。
 		cmd = exec.Command("/bin/sh", "-c", shell)
 	default:
-		cmd = exec.Command(shell, "-l")
+		if useLogin {
+			cmd = exec.Command(shell, "-l")
+		} else {
+			cmd = exec.Command(shell)
+		}
 	}
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color")
 	if home, err := os.UserHomeDir(); err == nil {
