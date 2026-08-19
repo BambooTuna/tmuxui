@@ -262,6 +262,9 @@ function currentTerminalPrefs() {
 function buildTerminalURL() {
   const { user, shell } = currentTerminalPrefs();
   const q = new URLSearchParams();
+  // PWA standalone や _blank 遷移では Cookie が別ストレージに分離される
+  // ケースがあるため、既存API/WSと同様に token を必ず URL 側にも載せる。
+  if (state && state.token) q.set('token', state.token);
   if (user) q.set('u', user);
   if (shell) q.set('s', shell);
   const qs = q.toString();
@@ -269,7 +272,8 @@ function buildTerminalURL() {
 }
 
 function openTerminal() {
-  window.open(buildTerminalURL(), '_blank', 'noopener');
+  // noopener を外す(自オリジンのみ・iOS Safariでcookie/refererが落ちる事例回避)
+  window.open(buildTerminalURL(), '_blank');
 }
 
 function initTerminalSettings() {
