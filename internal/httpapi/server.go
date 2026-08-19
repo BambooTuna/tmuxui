@@ -6,6 +6,7 @@ package httpapi
 import (
 	"embed"
 	"encoding/json"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/BambooTuna/tmuxui/internal/hub"
 	"github.com/BambooTuna/tmuxui/internal/prefs"
 	"github.com/BambooTuna/tmuxui/internal/selfupdate"
+	"github.com/BambooTuna/tmuxui/internal/shellws"
 )
 
 // Config は httpapi.New に渡す依存一式。WebFS の //go:embed 宣言は埋め込み元ソースファイルの
@@ -87,6 +89,22 @@ func New(cfg Config) http.Handler {
 	mux.HandleFunc("POST /api/filer/create", handleFilerCreate)
 	mux.HandleFunc("POST /api/filer/upload", handleFilerUpload)
 	mux.HandleFunc("/ws", s.hub.HandleWS)
+	mux.HandleFunc("/ws/shell", shellws.Handler())
+	// ブラウザSSHの単一画面(index.htmlとは別エントリ)。static file serverは
+	// パスをそのままファイル名に落とすため、拡張子を補うハンドラで明示配線する。
+	mux.HandleFunc("GET /terminal", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-cache")
+		f, err := webRoot.Open("terminal.html")
+		if err != nil {
+			http.Error(w, "not found", http.StatusNotFound)
+			return
+		}
+		defer f.Close()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if _, err := io.Copy(w, f); err != nil {
+			return
+		}
+	})
 	// PWAの起動URLにtokenを埋め込むため動的生成(認証はauthMiddleware側で担保)
 	mux.HandleFunc("GET /manifest.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/manifest+json")
@@ -136,7 +154,8 @@ func authMiddleware(validToken string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
 		// manifest.jsonはstart_urlにtokenを埋め込むため認証必須
-		if p != "/" && !strings.HasPrefix(p, "/api/") && p != "/ws" && p != "/manifest.json" {
+		// /terminal はブラウザSSHのエントリHTML、/ws/shell はそのWebSocket。両方認証対象
+		if p != "/" && p != "/terminal" && !strings.HasPrefix(p, "/api/") && !strings.HasPrefix(p, "/ws") && p != "/manifest.json" {
 			next.ServeHTTP(w, r)
 			return
 		}
