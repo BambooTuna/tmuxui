@@ -25,7 +25,32 @@
   // 届かなくなる。よってここでは preventDefault しない。ブラウザネイティブ
   // ショートカット (Cmd+Shift+[等) は下の Keyboard Lock (fullscreen中のみ動作)
   // で吸収する。fullscreen外では諦める。
-  term.attachCustomKeyEventHandler(() => true);
+
+  // xterm.js は Cmd (Meta) 修飾キー付きの入力をデフォルトで送信しない。
+  // ホスト terminal (Ghostty等) が Cmd+Shift+ を独自マッピングで送っている
+  // バイト列と同じものを WS 経由で送出する。マッピングは xxd で採取した値:
+  //   Cmd+Shift+[ → ^A + Up  (herdr previous-space)
+  //   Cmd+Shift+] → ^A + Down (herdr next-space)
+  //   Cmd+Shift+H → ^A + v   (herdr split)
+  //   Cmd+Shift+V → ^A + -   (herdr split)
+  // TODO: 将来的にはprefsで編集可能なマッピングに拡張する
+  const CMD_SHIFT_MAP = {
+    BracketLeft: '\x01\x1b[A',
+    BracketRight: '\x01\x1b[B',
+    KeyH: '\x01v',
+    KeyV: '\x01-',
+  };
+  term.attachCustomKeyEventHandler((e) => {
+    if (e.type !== 'keydown') return true;
+    if (!e.metaKey || !e.shiftKey || e.ctrlKey || e.altKey) return true;
+    const payload = CMD_SHIFT_MAP[e.code];
+    if (!payload) return true;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(enc.encode(payload));
+    }
+    e.preventDefault();
+    return false;
+  });
   // フォーカスが外れたらいつでも取り戻す。ページ内クリックで端末に集中させる。
   document.addEventListener('click', () => term.focus());
 
