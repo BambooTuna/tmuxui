@@ -82,11 +82,16 @@ func serve(conn *websocket.Conn, targetUser, explicitShell string) {
 	shell := resolveShell(explicitShell)
 
 	var cmd *exec.Cmd
-	if targetUser != "" {
+	switch {
+	case targetUser != "":
 		// -n: 非対話。パスワード要求で即失敗させる(WSからパスワード入力を扱わないため)
 		// -H: HOMEを切替先ユーザーのものに設定
 		cmd = exec.Command("sudo", "-n", "-u", targetUser, "-H", shell, "-l")
-	} else {
+	case strings.ContainsAny(shell, " \t"):
+		// "ssh localhost", "tmux new -s foo" のような複合コマンドは sh -c 経由で解釈する。
+		// これにより「dockerコンテナから ssh localhost で WSL host に戻る」等の運用ができる。
+		cmd = exec.Command("/bin/sh", "-c", shell)
+	default:
 		cmd = exec.Command(shell, "-l")
 	}
 	cmd.Env = append(os.Environ(), "TERM=xterm-256color")

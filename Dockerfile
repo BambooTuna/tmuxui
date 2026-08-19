@@ -13,7 +13,7 @@ FROM alpine:edge
 # タブ区切りパースが壊れる。tmux 3.7以降で修正されているためedge(3.7b)を採用する。
 # LANG/LC_ALLを設定しないと3.7b含めどのバージョンでもtabがサニタイズされる。
 # bash/sudo は「ブラウザ端末」機能で使う (bash はまともなshell、sudo は user切替)。
-RUN apk add --no-cache tmux git ca-certificates bash sudo shadow
+RUN apk add --no-cache tmux git ca-certificates bash sudo shadow openssh-client
 # selfupdate.ApplyがバイナリをRenameで置換するため、実行ファイルを非rootユーザが
 # 書けるディレクトリに配置する。
 # adduserは UID 1000 に "tmuxui" 名を割り当てるだけ ($HOMEはcompose側で
