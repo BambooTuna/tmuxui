@@ -35,7 +35,30 @@
   document.addEventListener('click', () => term.focus());
 
   // Chrome の Keyboard Lock API (Cmd+W 等も含む全キー吸収)。fullscreen中のみ動作。
-  // 右上のボタンでトグル。Escで抜けたら自動でロック解除される。
+  // 初回のuserGesture(click/keydown/touch)で自動的にフルスクリーン+lockを試みる。
+  // ボタン経由でもトグル可。fullscreenを抜けたら再度triggerできるようリセットする。
+  let lockActivated = false;
+  async function activateLock() {
+    if (lockActivated) return;
+    lockActivated = true;
+    try {
+      await document.documentElement.requestFullscreen();
+    } catch (_) {
+      lockActivated = false;
+      return;
+    }
+    if (navigator.keyboard && typeof navigator.keyboard.lock === 'function') {
+      try { await navigator.keyboard.lock(); } catch (_) {}
+    }
+    term.focus();
+  }
+  ['click', 'keydown', 'touchstart'].forEach((ev) =>
+    document.addEventListener(ev, activateLock, { once: true, capture: true })
+  );
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement) lockActivated = false;
+  });
+
   const lockBtn = document.createElement('button');
   lockBtn.type = 'button';
   lockBtn.textContent = '⛶';
@@ -56,13 +79,8 @@
   ].join(';');
   lockBtn.addEventListener('click', async (e) => {
     e.stopPropagation();
-    if (!document.fullscreenElement) {
-      try { await document.documentElement.requestFullscreen(); } catch (_) {}
-    }
-    if (navigator.keyboard && typeof navigator.keyboard.lock === 'function') {
-      try { await navigator.keyboard.lock(); } catch (_) {}
-    }
-    term.focus();
+    lockActivated = false;
+    await activateLock();
   });
   document.body.appendChild(lockBtn);
 
