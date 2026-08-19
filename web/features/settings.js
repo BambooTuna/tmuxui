@@ -251,69 +251,6 @@ applyTheme(getCachedTheme(), false);
 // ===== transport/ws.js からの通知 =====
 bus.on('ws:update_status', e => renderUpdateSection(e.detail.updateStatus));
 
-// ===== ブラウザ端末 =====
-// prefs.terminal = {user, shell} を保存し、/terminal を新タブで開く。
-// 一覧ヘッダのボタンからは "保存済み設定で即開く" ショートカット動線として使う。
-function currentTerminalPrefs() {
-  const p = (getPreferences() || {}).terminal || {};
-  return { user: (p.user || '').trim(), shell: (p.shell || '').trim() };
-}
-
-function buildTerminalURL() {
-  const { user, shell } = currentTerminalPrefs();
-  const q = new URLSearchParams();
-  // PWA standalone や _blank 遷移では Cookie が別ストレージに分離される
-  // ケースがあるため、既存API/WSと同様に token を必ず URL 側にも載せる。
-  if (state && state.token) q.set('token', state.token);
-  if (user) q.set('u', user);
-  if (shell) q.set('s', shell);
-  const qs = q.toString();
-  return '/terminal' + (qs ? '?' + qs : '');
-}
-
-function openTerminal() {
-  // noopener を外す(自オリジンのみ・iOS Safariでcookie/refererが落ちる事例回避)
-  window.open(buildTerminalURL(), '_blank');
-}
-
-function initTerminalSettings() {
-  const userEl = document.getElementById('terminal-user');
-  const shellEl = document.getElementById('terminal-shell');
-  const kbEl = document.getElementById('terminal-keybindings');
-  const openBtn = document.getElementById('terminal-open-btn');
-  if (!userEl || !shellEl || !openBtn) return;
-
-  loadPreferences().then(() => {
-    const { user, shell } = currentTerminalPrefs();
-    if (document.activeElement !== userEl) userEl.value = user;
-    if (document.activeElement !== shellEl) shellEl.value = shell;
-    if (kbEl && document.activeElement !== kbEl) {
-      kbEl.value = (getPreferences() || {}).terminalKeybindings || '';
-    }
-  });
-
-  const saveTerminal = () => {
-    savePreferences({ terminal: { user: userEl.value.trim(), shell: shellEl.value.trim() } });
-  };
-  const saveKeybindings = () => {
-    if (!kbEl) return;
-    savePreferences({ terminalKeybindings: kbEl.value });
-  };
-  userEl.addEventListener('change', saveTerminal);
-  userEl.addEventListener('blur', saveTerminal);
-  shellEl.addEventListener('change', saveTerminal);
-  shellEl.addEventListener('blur', saveTerminal);
-  if (kbEl) {
-    kbEl.addEventListener('blur', saveKeybindings);
-    kbEl.addEventListener('change', saveKeybindings);
-  }
-  openBtn.addEventListener('click', () => {
-    saveTerminal();
-    saveKeybindings();
-    openTerminal();
-  });
-}
-
 // ===== 初期化 =====
 function initSettings() {
   document.getElementById('btn-settings').addEventListener('click', showSettings);
@@ -333,13 +270,4 @@ function initSettings() {
   const versionApplyBtn = document.getElementById('update-version-apply-btn');
   if (versionRefreshBtn) versionRefreshBtn.addEventListener('click', loadAvailableReleases);
   if (versionApplyBtn) versionApplyBtn.addEventListener('click', applyVersionSwitch);
-
-  initTerminalSettings();
-  const termBtn = document.getElementById('btn-terminal');
-  if (termBtn) {
-    termBtn.addEventListener('click', () => {
-      // 事前にprefsを読み込んでから開く。まだ未ロードの場合を考慮
-      loadPreferences().then(openTerminal);
-    });
-  }
 }

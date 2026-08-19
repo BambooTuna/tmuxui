@@ -2,23 +2,12 @@ FROM alpine:edge
 # tmux 3.5〜3.6.x はformat文字列内のtabを`_`にサニタイズするためlist-sessions等の
 # タブ区切りパースが壊れる。tmux 3.7以降で修正されているためedge(3.7b)を採用する。
 # LANG/LC_ALLを設定しないと3.7b含めどのバージョンでもtabがサニタイズされる。
-# bash/sudo は「ブラウザ端末」機能で使う (bash はまともなshell、sudo は user切替)。
-RUN apk add --no-cache tmux git ca-certificates bash sudo shadow
+RUN apk add --no-cache tmux git ca-certificates
 # selfupdate.ApplyがバイナリをRenameで置換するため、実行ファイルを非rootユーザが
 # 書けるディレクトリに配置する。
-# adduserは UID 1000 に "tmuxui" 名を割り当てる ($HOMEはcompose側で
-# ホストと同一パスに上書きされる想定)。/etc/passwdに名前がないとbashのプロンプト
-# やwhoamiが空になるための処置。
-RUN adduser -D -u 1000 -h /home/tmuxui tmuxui && \
-    mkdir -p /home/tmuxui/bin /home/tmuxui/.config/tmuxui && \
-    chown -R 1000:1000 /home/tmuxui
-# sudoは NOPASSWD 全許可 (ブラウザ端末は既にtoken認証を通ってきた前提。
-# より狭めたい場合はここを絞る)。
-RUN echo 'tmuxui ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/tmuxui && \
-    chmod 440 /etc/sudoers.d/tmuxui
+RUN mkdir -p /home/tmuxui/bin /home/tmuxui/.config/tmuxui && chown -R 1000:1000 /home/tmuxui
 COPY --chown=1000:1000 tmuxui /home/tmuxui/bin/tmuxui
-ENV HOME=/home/tmuxui LANG=C.UTF-8 LC_ALL=C.UTF-8 SHELL=/bin/bash \
-    PATH=/home/tmuxui/bin:/usr/local/bin:/usr/bin:/bin
+ENV HOME=/home/tmuxui LANG=C.UTF-8 LC_ALL=C.UTF-8 PATH=/home/tmuxui/bin:/usr/local/bin:/usr/bin:/bin
 USER 1000:1000
 WORKDIR /home/tmuxui
 EXPOSE 6062
