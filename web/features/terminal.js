@@ -20,16 +20,11 @@
   try { fit.fit(); } catch (_) {}
   term.focus();
 
-  // ブラウザ側にキーを渡さず全部端末に吸わせる。
-  // attachCustomKeyEventHandler は xterm 要素内でしか走らないため、Chrome の
-  // Cmd+Shift+[ 等のネイティブショートカットはこれだけでは阻止できない。
-  // document capture phase で先に preventDefault する。propagation は止めない
-  // (xterm の keydown 処理はそのまま走らせる)。
-  document.addEventListener('keydown', (e) => {
-    // Cmd+W/T/Q/N のようにブラウザが完全に握るショートカットには効かないが、
-    // Cmd+Shift+[, Cmd+Shift+], Ctrl+Tab, Cmd+数字 等は吸える。
-    e.preventDefault();
-  }, { capture: true });
+  // 注意: document capture で preventDefault すると xterm.js の keydown ハンドラが
+  // 「既に処理済み」と判定して素通しになり、Space や修飾キー付き入力が xterm に
+  // 届かなくなる。よってここでは preventDefault しない。ブラウザネイティブ
+  // ショートカット (Cmd+Shift+[等) は下の Keyboard Lock (fullscreen中のみ動作)
+  // で吸収する。fullscreen外では諦める。
   term.attachCustomKeyEventHandler(() => true);
   // フォーカスが外れたらいつでも取り戻す。ページ内クリックで端末に集中させる。
   document.addEventListener('click', () => term.focus());

@@ -122,6 +122,25 @@ func New(cfg Config) http.Handler {
 			},
 		})
 	})
+	// ブラウザ端末専用 PWA。standalone install するとブラウザUIが消えて
+	// Cmd+Shift+[ 等の browser ネイティブショートカットが端末に直接届く。
+	mux.HandleFunc("GET /terminal-manifest.json", func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/manifest+json")
+		w.Header().Set("Cache-Control", "no-store")
+		json.NewEncoder(w).Encode(map[string]any{
+			"name":             "tmuxui terminal",
+			"short_name":       "tmux-term",
+			"start_url":        "/terminal?token=" + cfg.Token,
+			"scope":            "/terminal",
+			"display":          "standalone",
+			"background_color": "#000000",
+			"theme_color":      "#000000",
+			"icons": []map[string]string{
+				{"src": "/icon-192.png", "sizes": "192x192", "type": "image/png"},
+				{"src": "/icon-512.png", "sizes": "512x512", "type": "image/png"},
+			},
+		})
+	})
 	fileServer := http.FileServer(http.FS(webRoot))
 	if cfg.Dev {
 		mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -155,7 +174,7 @@ func authMiddleware(validToken string, next http.Handler) http.Handler {
 		p := r.URL.Path
 		// manifest.jsonはstart_urlにtokenを埋め込むため認証必須
 		// /terminal はブラウザSSHのエントリHTML、/ws/shell はそのWebSocket。両方認証対象
-		if p != "/" && p != "/terminal" && !strings.HasPrefix(p, "/api/") && !strings.HasPrefix(p, "/ws") && p != "/manifest.json" {
+		if p != "/" && p != "/terminal" && !strings.HasPrefix(p, "/api/") && !strings.HasPrefix(p, "/ws") && p != "/manifest.json" && p != "/terminal-manifest.json" {
 			next.ServeHTTP(w, r)
 			return
 		}
