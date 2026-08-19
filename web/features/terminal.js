@@ -20,16 +20,51 @@
   try { fit.fit(); } catch (_) {}
   term.focus();
 
-  // ブラウザ側にキーを渡さず全部端末に吸わせる (Chrome の Cmd+Shift+[ / Ctrl+Tab 等)。
-  // Cmd+W/T/Q/N のようにブラウザが完全に握るショートカットだけは preventDefault 不可。
-  term.attachCustomKeyEventHandler((e) => {
-    if (e.type === 'keydown' || e.type === 'keyup') {
-      e.preventDefault();
-    }
-    return true;
-  });
+  // ブラウザ側にキーを渡さず全部端末に吸わせる。
+  // attachCustomKeyEventHandler は xterm 要素内でしか走らないため、Chrome の
+  // Cmd+Shift+[ 等のネイティブショートカットはこれだけでは阻止できない。
+  // document capture phase で先に preventDefault する。propagation は止めない
+  // (xterm の keydown 処理はそのまま走らせる)。
+  document.addEventListener('keydown', (e) => {
+    // Cmd+W/T/Q/N のようにブラウザが完全に握るショートカットには効かないが、
+    // Cmd+Shift+[, Cmd+Shift+], Ctrl+Tab, Cmd+数字 等は吸える。
+    e.preventDefault();
+  }, { capture: true });
+  term.attachCustomKeyEventHandler(() => true);
   // フォーカスが外れたらいつでも取り戻す。ページ内クリックで端末に集中させる。
   document.addEventListener('click', () => term.focus());
+
+  // Chrome の Keyboard Lock API (Cmd+W 等も含む全キー吸収)。fullscreen中のみ動作。
+  // 右上のボタンでトグル。Escで抜けたら自動でロック解除される。
+  const lockBtn = document.createElement('button');
+  lockBtn.type = 'button';
+  lockBtn.textContent = '⛶';
+  lockBtn.title = 'フルスクリーン & 全キー吸収';
+  lockBtn.style.cssText = [
+    'position:fixed',
+    'top:calc(env(safe-area-inset-top) + 4px)',
+    'left:calc(env(safe-area-inset-left) + 8px)',
+    'z-index:10',
+    'padding:2px 8px',
+    'font-size:14px',
+    'line-height:1',
+    'background:rgba(0,0,0,0.5)',
+    'color:#fff',
+    'border:0',
+    'border-radius:10px',
+    'cursor:pointer',
+  ].join(';');
+  lockBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (!document.fullscreenElement) {
+      try { await document.documentElement.requestFullscreen(); } catch (_) {}
+    }
+    if (navigator.keyboard && typeof navigator.keyboard.lock === 'function') {
+      try { await navigator.keyboard.lock(); } catch (_) {}
+    }
+    term.focus();
+  });
+  document.body.appendChild(lockBtn);
 
   const statusEl = document.getElementById('status');
   let statusTimer = 0;
