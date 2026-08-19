@@ -20,6 +20,17 @@
   try { fit.fit(); } catch (_) {}
   term.focus();
 
+  // ブラウザ側にキーを渡さず全部端末に吸わせる (Chrome の Cmd+Shift+[ / Ctrl+Tab 等)。
+  // Cmd+W/T/Q/N のようにブラウザが完全に握るショートカットだけは preventDefault 不可。
+  term.attachCustomKeyEventHandler((e) => {
+    if (e.type === 'keydown' || e.type === 'keyup') {
+      e.preventDefault();
+    }
+    return true;
+  });
+  // フォーカスが外れたらいつでも取り戻す。ページ内クリックで端末に集中させる。
+  document.addEventListener('click', () => term.focus());
+
   const statusEl = document.getElementById('status');
   let statusTimer = 0;
   function showStatus(text, opts) {
