@@ -3,6 +3,8 @@
 [![Release](https://img.shields.io/github/release/BambooTuna/tmuxui.svg)](https://github.com/BambooTuna/tmuxui/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+[English](README.en.md) | 日本語
+
 スマホから **tmux / [herdr](https://github.com/BambooTuna/herdr)** のセッションを監視・操作できる Web アプリ。Claude Code などのエージェントに投げた作業の状況を眺めつつ、権限承認・追加指示・ファイル授受を外出先からこなせる。
 
 |  |  |
