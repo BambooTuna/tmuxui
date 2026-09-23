@@ -32,9 +32,11 @@ function connectWS() {
       const size = getSubscribeSize();
       wsSend(subscribePayload(state.currentPane, size));
     }
+    bus.emit('ws:open');
   };
 
   state.ws.onmessage = e => {
+    state.wsLastMsgAt = Date.now();
     try { handleWSMessage(JSON.parse(e.data)); } catch {}
   };
 
@@ -45,6 +47,22 @@ function connectWS() {
 
   state.ws.onerror = () => {};
 }
+
+// iPadOS/SafariはPWAが裏に回るとWSを黙って殺すが、oncloseが発火しないまま
+// readyStateがOPENを名乗り続ける「半死に接続」になることがある(=スタックして見える)。
+// Hubはpane_listを定期broadcast(約6秒毎)しているので、それを生存信号として使い、
+// 前面復帰時に10秒以上受信が無ければ接続を張り直す。
+function wsEnsureAlive() {
+  const stale = state.wsLastMsgAt && Date.now() - state.wsLastMsgAt > 10000;
+  if (!state.ws || state.ws.readyState !== WebSocket.OPEN || stale) {
+    connectWS();
+  }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') wsEnsureAlive();
+});
+window.addEventListener('pageshow', wsEnsureAlive);
+window.addEventListener('focus', wsEnsureAlive);
 
 function wsSend(msg) {
   if (state.ws && state.ws.readyState === WebSocket.OPEN) {
@@ -134,4 +152,10 @@ function sendKeys(target, keys) {
       body: JSON.stringify({ keys }),
     });
   }
+}
+
+// xterm.jsのonData(マウスレポート/生キー入力のエスケープシーケンス)を解釈せず送る。
+// terminalタブのマウス操作(クリック/ドラッグ/スクロール)をアプリへ届けるのに使う。
+function sendRaw(target, data) {
+  wsSend({ type: 'send_raw', target, data });
 }

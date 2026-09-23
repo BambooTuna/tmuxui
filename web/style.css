@@ -1,3 +1,18 @@
+/* Nerd Font同梱: iPadにはNerd Fontが無くアイコンが化ける/幅がズレるため、
+   ターミナル描画は必ずこのフォントで行う(wezterm内蔵フォントと同じ役割)。 */
+@font-face {
+  font-family: 'JetBrainsMono NF';
+  src: url('vendor/fonts/JetBrainsMonoNerdFontMono-Regular.ttf') format('truetype');
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'JetBrainsMono NF';
+  src: url('vendor/fonts/JetBrainsMonoNerdFontMono-Bold.ttf') format('truetype');
+  font-weight: 700;
+  font-display: swap;
+}
+
 /* ===== Variables (Apple Intelligence 視覚言語) ===== */
 :root {
   color-scheme: dark;
@@ -35,7 +50,7 @@
   --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
   /* term.jsはgetComputedStyle().getPropertyValue('--mono')でxtermのfontFamilyを取得するが、
      このAPIはネストしたvar()を解決しない。--monoには必ず具体値を置き、--font-monoはalias扱い。 */
-  --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --mono: "JetBrainsMono NF", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
   --font-mono: var(--mono);
   /* Legacy aliases (既存クラスとの互換のため) */
   --bg2: var(--material-thin-bg);
@@ -256,26 +271,23 @@ button, input, textarea {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 12px 12px;
-  padding-top:   calc(12px + var(--safe-top));
-  padding-left:  calc(12px + var(--safe-left));
-  padding-right: calc(12px + var(--safe-right));
+  padding: 4px 8px;
+  padding-top:   calc(4px + var(--safe-top));
+  padding-left:  calc(8px + var(--safe-left));
+  padding-right: calc(8px + var(--safe-right));
   background: var(--material-thin-bg);
   -webkit-backdrop-filter: var(--material-blur);
   backdrop-filter: var(--material-blur);
   border-bottom: 1px solid var(--separator);
-  min-height: 56px;
+  min-height: 32px;
   flex-shrink: 0;
   position: relative;
   z-index: 10;
 }
 
-.app-title {
-  font-family: var(--font-display);
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--text);
-  flex: 1;
+.header .btn-icon {
+  min-width: 34px;
+  min-height: 28px;
 }
 
 /* ===== WebSocket Status Dot ===== */
@@ -305,11 +317,10 @@ button, input, textarea {
 .top-tabs {
   position: relative;
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr 1fr 1fr;
   gap: 2px;
-  margin: 10px 12px 0;
-  margin-left:  calc(12px + var(--safe-left));
-  margin-right: calc(12px + var(--safe-right));
+  flex: 1;
+  margin: 0;
   padding: 2px;
   background: var(--material-thick-bg);
   border: 1px solid var(--separator);
@@ -321,7 +332,7 @@ button, input, textarea {
   position: absolute;
   top: 2px;
   left: 2px;
-  width: calc(50% - 2px);
+  width: calc((100% - 8px) / 3);
   height: calc(100% - 4px);
   background: var(--surface);
   background: color-mix(in srgb, var(--text) 12%, transparent);
@@ -332,19 +343,43 @@ button, input, textarea {
 }
 
 .top-tabs[data-active="tmux"] .top-tabs-indicator {
-  transform: translateX(100%);
+  transform: translateX(calc(100% + 2px));
+}
+
+.top-tabs[data-active="terminal"] .top-tabs-indicator {
+  transform: translateX(calc(200% + 4px));
+}
+
+/* ===== Terminal タブ ===== */
+.terminal-echo {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  padding-left:   var(--safe-left);
+  padding-right:  var(--safe-right);
+  padding-bottom: var(--safe-bottom);
+  min-height: 0;
+}
+
+.webterm-container {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: 1px;
+  background: #000;
 }
 
 .top-tab-btn {
   position: relative;
   z-index: 1;
-  min-height: 34px;
+  min-height: 24px;
   background: none;
   border: none;
   border-radius: calc(var(--radius-md) - 2px);
   color: var(--muted);
   font-family: var(--font-ui);
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
   cursor: pointer;
   transition: color var(--transition);

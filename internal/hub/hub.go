@@ -366,6 +366,12 @@ func (c *Client) readPump() {
 				continue
 			}
 			be.SendKeys(native, msg.Keys)
+		case "send_raw":
+			be, native, err := c.hub.registry.Resolve(msg.Target)
+			if err != nil {
+				continue
+			}
+			be.SendRaw(native, msg.Data)
 		case "refresh":
 			be, native, err := c.hub.registry.Resolve(msg.Target)
 			if err != nil {

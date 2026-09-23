@@ -25,6 +25,7 @@ func (f *fakeBackend) Subscribe(string) (<-chan []byte, func(), error) {
 func (f *fakeBackend) CapturePane(string) (*PaneContent, error) { return nil, nil }
 func (f *fakeBackend) CapturePanePlain(string) (string, error)  { return "", nil }
 func (f *fakeBackend) SendKeys(string, string) error            { return nil }
+func (f *fakeBackend) SendRaw(string, string) error             { return nil }
 func (f *fakeBackend) Resize(string, int, int) error            { return nil }
 func (f *fakeBackend) NewSession(string, string) error          { return nil }
 func (f *fakeBackend) KillSession(string) error                 { return nil }

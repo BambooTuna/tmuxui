@@ -11,24 +11,28 @@
   <meta name="theme-color" content="#1a1a2e">
   <link rel="icon" type="image/png" href="icon-192.png">
   <link rel="stylesheet" href="vendor/xterm/xterm.css">
-  <link rel="stylesheet" href="style.css?v=40">
+  <link rel="stylesheet" href="style.css?v=48">
 </head>
 <body>
 
   <!-- ===== 画面1: セッション一覧 ===== -->
   <div id="view-sessions" class="view active">
     <header class="header">
-      <h1 class="app-title">tmuxui</h1>
+      <div id="top-tabs" class="top-tabs" data-active="herdr">
+        <button type="button" class="top-tab-btn" data-tab="herdr">herdr</button>
+        <button type="button" class="top-tab-btn" data-tab="tmux">tmux</button>
+        <button type="button" class="top-tab-btn" data-tab="terminal">terminal</button>
+        <span class="top-tabs-indicator"></span>
+      </div>
       <button id="btn-new-session" class="btn-icon" aria-label="新規セッション">＋</button>
       <button id="btn-settings" class="btn-icon" aria-label="設定">&#9881;</button>
       <span id="ws-dot" class="ws-dot"></span>
     </header>
-    <div id="top-tabs" class="top-tabs" data-active="herdr">
-      <button type="button" class="top-tab-btn" data-tab="herdr">herdr</button>
-      <button type="button" class="top-tab-btn" data-tab="tmux">tmux</button>
-      <span class="top-tabs-indicator"></span>
-    </div>
     <main id="session-list" class="session-list"></main>
+    <!-- terminal タブ: 専用tmuxセッション(webterm)を直接操作する検証用ビュー -->
+    <main id="terminal-echo" class="terminal-echo" hidden>
+      <div id="webterm" class="webterm-container"></div>
+    </main>
   </div>
   <!-- ===== 画面2: セッション詳細 ===== -->
   <div id="view-detail" class="view">
@@ -341,6 +345,8 @@
 
   <script src="vendor/xterm/xterm.js"></script>
   <script src="vendor/xterm/addon-fit.js"></script>
+  <script src="vendor/xterm/addon-webgl.js"></script>
+  <script src="vendor/xterm/addon-clipboard.js"></script>
 
   <!-- core -->
   <script src="core/state.js?v=1"></script>
@@ -352,10 +358,11 @@
   <script src="render/xterm-view.js?v=6"></script>
 
   <!-- transport -->
-  <script src="transport/ws.js?v=2"></script>
+  <script src="transport/ws.js?v=4"></script>
 
   <!-- features -->
-  <script src="features/sessions.js?v=4"></script>
+  <script src="features/sessions.js?v=8"></script>
+  <script src="features/webterm.js?v=24"></script>
   <script src="features/input-bar.js?v=2"></script>
   <script src="features/settings.js?v=2"></script>
   <script src="features/filer.js?v=4"></script>

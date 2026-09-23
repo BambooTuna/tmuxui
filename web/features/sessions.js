@@ -451,9 +451,9 @@ function countBlockedPanes(session) {
   return n;
 }
 
-// ===== Top Tabs (herdr / tmux) =====
+// ===== Top Tabs (herdr / tmux / terminal) =====
 function setTopTab(tab) {
-  if (tab !== 'herdr' && tab !== 'tmux') return;
+  if (tab !== 'herdr' && tab !== 'tmux' && tab !== 'terminal') return;
   if (state.currentTopTab === tab) return;
   state.currentTopTab = tab;
   try { localStorage.setItem('tmuxui.topTab', tab); } catch {}
@@ -472,6 +472,14 @@ function renderTopTabs() {
 function renderSessionList() {
   renderTopTabs();
   const el = $('session-list');
+  const isTerminal = state.currentTopTab === 'terminal';
+  el.hidden = isTerminal;
+  const echo = $('terminal-echo');
+  if (echo) echo.hidden = !isTerminal;
+  if (isTerminal) {
+    if (typeof webtermOnTabChange === 'function') webtermOnTabChange();
+    return;
+  }
   el.innerHTML = '';
 
   if (!state.sessions.length) {
@@ -803,6 +811,8 @@ function initSessions() {
     });
     renderTopTabs();
   }
+
+  initWebterm();
 
   // Android hardware back
   window.addEventListener('popstate', () => {

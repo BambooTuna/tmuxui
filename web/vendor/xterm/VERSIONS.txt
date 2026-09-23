@@ -1,3 +1,5 @@
 xterm.js: @xterm/xterm 6.0.0 (lib/xterm.js, css/xterm.css)
 addon-fit.js: @xterm/addon-fit 0.11.0 (lib/addon-fit.js)
+addon-webgl.js: @xterm/addon-webgl 0.19.0 (lib/addon-webgl.js)
+addon-clipboard.js: @xterm/addon-clipboard 0.2.0 (lib/addon-clipboard.js)
 npm packからの手動vendoring。更新時も同手順。

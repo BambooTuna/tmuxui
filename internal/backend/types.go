@@ -33,6 +33,9 @@ type PaneBackend interface {
 	CapturePanePlain(target string) (string, error)
 
 	SendKeys(target, keys string) error
+	// SendRaw はxterm.jsのonData(キー入力やマウスレポートのエスケープシーケンス)を
+	// 解釈せずそのままpaneのstdinへ流す。マウス操作をアプリ(claude/herdr等)に届けるのに使う。
+	SendRaw(target, data string) error
 	Resize(target string, cols, rows int) error
 
 	NewSession(name, dir string) error

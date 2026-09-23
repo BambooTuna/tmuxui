@@ -77,6 +77,7 @@ func (f *fakeBackend) SendKeys(target, keys string) error {
 	}
 	return nil
 }
+func (f *fakeBackend) SendRaw(string, string) error { return nil }
 func (f *fakeBackend) Resize(string, int, int) error      { return nil }
 func (f *fakeBackend) NewSession(string, string) error    { return nil }
 func (f *fakeBackend) KillSession(string) error           { return f.killErr }

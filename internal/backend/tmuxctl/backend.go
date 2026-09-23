@@ -54,6 +54,15 @@ func (b *TmuxControlBackend) SendKeys(target, keys string) error {
 	return sendKeys(target, keys)
 }
 
+// SendRaw はdataをliteral(-l)でそのままpaneへ送る。ESC等の制御バイトを含む
+// マウスレポートseqをtmuxのキー名解釈を経由せずアプリへ届ける。
+func (b *TmuxControlBackend) SendRaw(target, data string) error {
+	if data == "" {
+		return nil
+	}
+	return exec.Command("tmux", "send-keys", "-t", target, "-l", "--", data).Run()
+}
+
 func (b *TmuxControlBackend) NewSession(name, dir string) error {
 	return newSession(name, dir)
 }
@@ -107,12 +116,12 @@ func (b *TmuxControlBackend) OnTopologyChange(fn func()) {
 // termSetSize相当でクライアント側ターミナルをペインの実サイズに追従させるために使う。
 func (b *TmuxControlBackend) Snapshot(target string) ([]byte, int, int, error) {
 	infoOut, err := exec.Command("tmux", "display-message", "-p", "-t", target,
-		"-F", "#{alternate_on} #{cursor_x} #{cursor_y} #{cursor_flag} #{pane_width} #{pane_height}").Output()
+		"-F", "#{alternate_on} #{cursor_x} #{cursor_y} #{cursor_flag} #{pane_width} #{pane_height} #{wrap_flag} #{scroll_region_upper} #{scroll_region_lower} #{keypad_cursor_flag} #{keypad_flag} #{mouse_standard_flag} #{mouse_button_flag} #{mouse_all_flag} #{mouse_sgr_flag}").Output()
 	if err != nil {
 		return nil, 0, 0, err
 	}
 	fields := strings.Fields(strings.TrimSpace(string(infoOut)))
-	if len(fields) < 6 {
+	if len(fields) < 15 {
 		return nil, 0, 0, fmt.Errorf("unexpected display-message output: %q", infoOut)
 	}
 	altOn := fields[0] == "1"
@@ -121,6 +130,15 @@ func (b *TmuxControlBackend) Snapshot(target string) ([]byte, int, int, error) {
 	cursorFlag := fields[3] == "1"
 	paneWidth, _ := strconv.Atoi(fields[4])
 	paneHeight, _ := strconv.Atoi(fields[5])
+	wrapOn := fields[6] == "1"
+	scrollUpper, _ := strconv.Atoi(fields[7])
+	scrollLower, _ := strconv.Atoi(fields[8])
+	cursorKeys := fields[9] == "1"
+	keypadApp := fields[10] == "1"
+	mouseStandard := fields[11] == "1"
+	mouseButton := fields[12] == "1"
+	mouseAll := fields[13] == "1"
+	mouseSGR := fields[14] == "1"
 
 	args := []string{"capture-pane", "-t", target, "-p", "-e", "-J"}
 	if !altOn {
@@ -136,8 +154,41 @@ func (b *TmuxControlBackend) Snapshot(target string) ([]byte, int, int, error) {
 		buf.WriteString("\x1b[?1049h")
 		buf.WriteString("\x1b[0m")
 	}
+	// capture-pane出力は末尾に\nが付く。rows行ちょうどの画面にそのまま書くと最終行の
+	// \r\nで1行スクロールし、以後の絶対座標の差分が全て1行ズレた土台に乗って崩れる。
+	body = bytes.TrimSuffix(body, []byte("\n"))
 	// capture-paneの行区切りは\nのみ。端末に書き込む際は\r\nでないと桁位置がずれる
 	buf.Write(bytes.ReplaceAll(body, []byte("\n"), []byte("\r\n")))
+	// ペインの端末モードも再現する。特にwrap(DECAWM): herdr等はwrap OFFで動くため、
+	// クライアント側がデフォルトのwrap ONのままだと右端に触れる描画で勝手に折り返し、
+	// 以後の出力が本来と別の位置に落ちる(snapshot直後の差分から画面が崩れる原因)。
+	if scrollUpper > 0 || scrollLower < paneHeight-1 {
+		fmt.Fprintf(&buf, "\x1b[%d;%dr", scrollUpper+1, scrollLower+1)
+	}
+	if !wrapOn {
+		buf.WriteString("\x1b[?7l")
+	}
+	// 入力モードも再現する。cursor keys(DECCKM)/keypadが合っていないと矢印キー等の
+	// エンコードが実アプリの期待とズレ、マウスモードが合っていないとxterm.jsが
+	// タップ/スクロールをマウスレポートに変換しない(=snapshot復元直後だけ操作が効かない)。
+	if cursorKeys {
+		buf.WriteString("\x1b[?1h")
+	}
+	if keypadApp {
+		buf.WriteString("\x1b=")
+	}
+	if mouseStandard {
+		buf.WriteString("\x1b[?1000h")
+	}
+	if mouseButton {
+		buf.WriteString("\x1b[?1002h")
+	}
+	if mouseAll {
+		buf.WriteString("\x1b[?1003h")
+	}
+	if mouseSGR {
+		buf.WriteString("\x1b[?1006h")
+	}
 	fmt.Fprintf(&buf, "\x1b[%d;%dH", cursorY+1, cursorX+1)
 	if !cursorFlag {
 		buf.WriteString("\x1b[?25l")

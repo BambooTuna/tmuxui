@@ -752,6 +752,11 @@ func (b *HerdrBackend) paneHasScrollback(target string) bool {
 	return res.Pane.Scroll.MaxOffsetFromBottom > 0
 }
 
+// SendRaw はherdrバックエンドでは未対応(terminalタブはtmuxセッションのみ使う)。
+func (b *HerdrBackend) SendRaw(target, data string) error {
+	return backend.ErrUnsupported
+}
+
 func (b *HerdrBackend) SendKeys(target, keys string) error {
 	if keys == "" {
 		return nil
