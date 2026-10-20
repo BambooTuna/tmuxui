@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
@@ -63,11 +64,22 @@ func main() {
 	case "off":
 		// herdr連携を無効化
 	case "auto":
-		if path := herdr.DefaultSocketPath(); herdr.SocketReachable(path) {
-			herdrBackend := herdr.New(path)
-			herdrBackend.OnTopologyChange(h.BroadcastPaneList)
-			registry.Register("herdr", herdrBackend)
+		// 起動時にherdrが未起動でも(OS起動直後のコンテナ等)、socketの置き場所があれば
+		// herdr導入済みとみなして登録する。接続は呼び出しごとに張り直すので後から繋がる。
+		path := herdr.DefaultSocketPath()
+		if path == "" {
+			break
+		}
+		if _, err := os.Stat(filepath.Dir(path)); err != nil {
+			break
+		}
+		herdrBackend := herdr.New(path)
+		herdrBackend.OnTopologyChange(h.BroadcastPaneList)
+		registry.Register("herdr", herdrBackend)
+		if herdr.SocketReachable(path) {
 			log.Printf("herdr: connected via %s", path)
+		} else {
+			log.Printf("herdr: socket %s not reachable yet, will retry on demand", path)
 		}
 	default:
 		herdrBackend := herdr.New(cfg.HerdrMode)
