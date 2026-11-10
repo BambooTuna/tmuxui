@@ -87,6 +87,7 @@ func New(cfg Config) http.Handler {
 	mux.HandleFunc("POST /api/filer/create", handleFilerCreate)
 	mux.HandleFunc("POST /api/filer/upload", handleFilerUpload)
 	mux.HandleFunc("/ws", s.hub.HandleWS)
+	mux.HandleFunc("/ws/pty", s.hub.HandlePtyWS)
 	// PWAの起動URLにtokenを埋め込むため動的生成(認証はauthMiddleware側で担保)
 	mux.HandleFunc("GET /manifest.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/manifest+json")
@@ -136,7 +137,7 @@ func authMiddleware(validToken string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p := r.URL.Path
 		// manifest.jsonはstart_urlにtokenを埋め込むため認証必須
-		if p != "/" && !strings.HasPrefix(p, "/api/") && p != "/ws" && p != "/manifest.json" {
+		if p != "/" && !strings.HasPrefix(p, "/api/") && p != "/ws" && p != "/ws/pty" && p != "/manifest.json" {
 			next.ServeHTTP(w, r)
 			return
 		}
