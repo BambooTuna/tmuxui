@@ -1,6 +1,6 @@
 module github.com/BambooTuna/tmuxui
 
-go 1.24.11
+go 1.26.11
 
 require (
 	github.com/creack/pty v1.1.24
@@ -23,9 +23,9 @@ require (
 	github.com/hashicorp/go-version v1.8.0 // indirect
 	github.com/ulikunitz/xz v0.5.15 // indirect
 	gitlab.com/gitlab-org/api/client-go v1.9.1 // indirect
-	golang.org/x/crypto v0.46.0 // indirect
+	golang.org/x/crypto v0.58.0 // indirect
 	golang.org/x/oauth2 v0.34.0 // indirect
-	golang.org/x/sys v0.39.0 // indirect
+	golang.org/x/sys v0.49.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
