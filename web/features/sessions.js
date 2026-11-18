@@ -410,13 +410,8 @@ function isPinned(name) {
   return state.pinnedSessions.includes(name);
 }
 
-// ピン留め > agent statusの重要度(blocked > working > idle > done > なし)の順。
-// 同じ重要度内はArray.prototype.sort()の安定ソート特性により従来の並び順を維持する。
-const AGENT_STATUS_SORT_PRIORITY = { blocked: 0, working: 1, idle: 2, done: 3 };
-function agentStatusSortRank(status) {
-  return status in AGENT_STATUS_SORT_PRIORITY ? AGENT_STATUS_SORT_PRIORITY[status] : 4;
-}
-
+// ピン留め(ピン順) > それ以外はサーバーの並び(herdrはworkspace番号順)。
+// agent statusで並べると状態変化のたびにカードが入れ替わるため、状態はバッジ表示に留める。
 function sortedSessions(sessions) {
   const list = sessions || state.sessions;
   const pinOrder = new Map();
@@ -428,7 +423,6 @@ function sortedSessions(sessions) {
     else others.push(s);
   }
   pinned.sort((a, b) => pinOrder.get(a.name) - pinOrder.get(b.name));
-  others.sort((a, b) => agentStatusSortRank(effectiveAgentStatus(a)) - agentStatusSortRank(effectiveAgentStatus(b)));
   return [...pinned, ...others];
 }
 

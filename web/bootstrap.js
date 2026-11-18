@@ -10,6 +10,8 @@ async function applyStoredPreferences() {
   }
   if (Array.isArray(prefs.pinnedSessions)) {
     state.pinnedSessions = prefs.pinnedSessions.filter(n => typeof n === 'string');
+    // 一覧はセッション変化時しか再描画されないため、prefsが後着した場合に備えて描画し直す
+    renderSessionList();
   }
 }
 

@@ -3,6 +3,7 @@ package prefs
 
 import (
 	"encoding/json"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -155,6 +156,11 @@ func (p *Preferences) save() {
 		return
 	}
 	dir := filepath.Dir(p.filePath)
-	os.MkdirAll(dir, 0755)
-	os.WriteFile(p.filePath, data, 0644)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		log.Printf("prefs: save failed: %v", err)
+		return
+	}
+	if err := os.WriteFile(p.filePath, data, 0644); err != nil {
+		log.Printf("prefs: save failed: %v", err)
+	}
 }
